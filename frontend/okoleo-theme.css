@@ -1,0 +1,452 @@
+/* Okoleo Earth-Tone Theme - Integrated with Tailwind */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Primary Colors */
+  --cream: #D4C8B5;
+  --tan: #C4A995;
+  --beige: #D5BFA4;
+  --warmgray: #B4A58B;
+  --taupe: #CABAA1;
+  --darkgray: #3E3D39;
+  --sagegray: #9AA8A8;
+  --nearblack: #050505;
+  --olivegray: #6D7464;
+
+  /* CSS Variables for Components */
+  --bg-primary: #D4C8B5;
+  --bg-secondary: #C4A995;
+  --bg-card: #D5BFA4;
+  --bg-card-alt: #CABAA1;
+  --bg-navbar: #D5BFA4;
+  
+  --text-primary: #050505;
+  --text-secondary: #3E3D39;
+  
+  --button-primary: #3E3D39;
+  --button-text: #D4C8B5;
+  
+  --accent-primary: #6D7464;
+  --border-light: #B4A58B;
+
+  /* Typography Scale - Desktop (Default) */
+  --h1-size: 2rem;      /* 32px - Main page titles */
+  --h2-size: 1.5rem;   /* 24px - Section titles */
+  --h3-size: 1.25rem;  /* 20px - Card titles */
+  --h4-size: 1.125rem; /* 18px - Subsection titles */
+  
+  --body-large: 1rem;      /* 16px - Large body text */
+  --body-regular: 0.875rem;/* 14px - Regular body text */
+  --body-small: 0.75rem;  /* 12px - Small/Helper text */
+  --body-xs: 0.625rem;     /* 10px - Extra small text */
+  
+  --button-size: 0.875rem;/* 14px - Button text */
+  --label-size: 0.75rem;  /* 12px - Form labels */
+}
+
+/* Responsive Typography - Tablets */
+@media (max-width: 1024px) {
+  :root {
+    --h1-size: 1.875rem;  /* 30px */
+    --h2-size: 1.375rem; /* 22px */
+    --body-regular: 0.8125rem; /* 13px */
+  }
+}
+
+/* Responsive Typography - Mobile */
+@media (max-width: 768px) {
+  :root {
+    --h1-size: 1.75rem;   /* 28px */
+    --h2-size: 1.25rem;   /* 20px */
+    --h3-size: 1.125rem;  /* 18px */
+    --h4-size: 1rem;      /* 16px */
+    --body-large: 0.9375rem; /* 15px */
+    --body-regular: 0.8125rem; /* 13px */
+    --body-small: 0.6875rem; /* 11px */
+    --button-size: 0.8125rem; /* 13px */
+    --label-size: 0.6875rem; /* 11px */
+  }
+}
+
+/* Typography Utility Classes */
+.h1 {
+  font-size: var(--h1-size);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.h2 {
+  font-size: var(--h2-size);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.h3 {
+  font-size: var(--h3-size);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.h4 {
+  font-size: var(--h4-size);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.body-large {
+  font-size: var(--body-large);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.body-regular {
+  font-size: var(--body-regular);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.body-small {
+  font-size: var(--body-small);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.body-xs {
+  font-size: var(--body-xs);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.button-text {
+  font-size: var(--button-size);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.label {
+  font-size: var(--label-size);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* ============================================
+   RESPONSIVE LAYOUT UTILITIES
+   ============================================ */
+
+/* Card responsive padding */
+.card-responsive {
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .card-responsive {
+    padding: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .card-responsive {
+    padding: 1.5rem;
+  }
+}
+
+/* Landscape mode - more compact */
+@media (orientation: landscape) and (max-height: 700px) {
+  .card-responsive {
+    padding: 0.75rem;
+  }
+}
+
+/* Grid for stat cards - 2 columns in landscape */
+.grid-stat-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .grid-stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 700px) {
+  .grid-stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid-stat-cards {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Grid for admin analytics cards - 3 columns on desktop */
+.grid-analytics-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .grid-analytics-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 700px) {
+  .grid-analytics-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid-analytics-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ============================================
+   COLLAPSIBLE SECTIONS
+   ============================================ */
+
+.collapsible-section {
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+.collapsible-section.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+.collapsible-section.expanded {
+  max-height: 2000px;
+  opacity: 1;
+}
+
+.collapsible-header {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.collapsible-icon {
+  transition: transform 0.3s ease;
+}
+
+.collapsible-icon.rotated {
+  transform: rotate(180deg);
+}
+
+/* Landscape mode - default collapsed for space saving */
+@media (orientation: landscape) and (max-height: 700px) {
+  .collapsible-section.landscape-auto-collapse.collapsed {
+    max-height: 0;
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   RESPONSIVE FORM LAYOUTS
+   ============================================ */
+
+.form-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .form-grid.two-cols {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Form fields - 2 columns on landscape mobile */
+@media (orientation: landscape) and (max-height: 500px) {
+  .form-grid.two-cols {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ============================================
+   STICKY BOTTOM BUTTON
+   ============================================ */
+
+.sticky-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  padding: 1rem;
+  background: inherit;
+}
+
+@media (min-width: 768px) {
+  .sticky-bottom {
+    position: static;
+    padding: 0;
+  }
+}
+
+/* Global Styles - Apply Okoleo Colors */
+body {
+  background-color: var(--cream) !important;
+  color: var(--nearblack) !important;
+}
+
+/* Override Tailwind colors with Okoleo palette */
+.bg-cream { background-color: #D4C8B5; }
+.bg-tan { background-color: #C4A995; }
+.bg-beige { background-color: #D5BFA4; }
+.bg-warmgray { background-color: #B4A58B; }
+.bg-taupe { background-color: #CABAA1; }
+.bg-darkgray { background-color: #3E3D39; }
+.bg-sagegray { background-color: #9AA8A8; }
+.bg-olivegray { background-color: #6D7464; }
+
+/* Text Colors */
+.text-cream { color: #D4C8B5; }
+.text-tan { color: #C4A995; }
+.text-beige { color: #D5BFA4; }
+.text-warmgray { color: #B4A58B; }
+.text-taupe { color: #CABAA1; }
+.text-darkgray { color: #3E3D39; }
+.text-sagegray { color: #9AA8A8; }
+.text-olivegray { color: #6D7464; }
+.text-nearblack { color: #050505; }
+
+/* Border Colors */
+.border-cream { border-color: #D4C8B5; }
+.border-tan { border-color: #C4A995; }
+.border-beige { border-color: #D5BFA4; }
+.border-warmgray { border-color: #B4A58B; }
+.border-taupe { border-color: #CABAA1; }
+.border-darkgray { border-color: #3E3D39; }
+
+/* Card Styles */
+.card-okoleo {
+  background-color: #D5BFA4;
+  border: 1px solid #B4A58B;
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+/* Button Styles */
+.btn-okoleo-primary {
+  background-color: #3E3D39;
+  color: #D4C8B5;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.btn-okoleo-primary:hover {
+  background-color: #6D7464;
+}
+
+.btn-okoleo-secondary {
+  background-color: #D5BFA4;
+  color: #050505;
+  border: 1px solid #B4A58B;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.btn-okoleo-secondary:hover {
+  background-color: #C4A995;
+}
+
+/* Status Badges */
+.badge-success-okoleo {
+  background-color: #6D7464;
+  color: #D4C8B5;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.badge-warning-okoleo {
+  background-color: #CABAA1;
+  color: #050505;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.badge-error-okoleo {
+  background-color: #3E3D39;
+  color: #D4C8B5;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.badge-info-okoleo {
+  background-color: #9AA8A8;
+  color: #050505;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+.badge-default-okoleo {
+  background-color: #B4A58B;
+  color: #050505;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+/* Sidebar Styles */
+.sidebar-okoleo {
+  background-color: #C4A995;
+  border-right: 1px solid #B4A58B;
+}
+
+/* Input Styles */
+.input-okoleo {
+  background-color: #D5BFA4;
+  color: #050505;
+  border: 1px solid #B4A58B;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  outline: none;
+  transition: border-color 0.3s ease;
+}
+
+.input-okoleo:focus {
+  border-color: #3E3D39;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #C4A995;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #B4A58B;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6D7464;
+}
+
+/* Hide scrollbar for horizontal scroll containers */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
