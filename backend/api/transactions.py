@@ -23,14 +23,16 @@ def check_admin(user: User) -> bool:
 
 
 def calculate_outstanding_balance(db: Session, loan: Loan) -> float:
-    """Calculate outstanding balance for a loan based on confirmed transactions"""
-    # Get all confirmed transactions for this loan
+    """Calculate outstanding balance for a loan based on confirmed REPAYMENT transactions"""
+    # Get only REPAYMENT transactions for this loan (exclude disbursements)
     total_paid = db.query(func.coalesce(func.sum(Transaction.amount), 0)).filter(
         Transaction.loan_id == loan.id,
-        Transaction.status == TransactionStatus.CONFIRMED
+        Transaction.status == TransactionStatus.CONFIRMED,
+        Transaction.type == TransactionType.REPAYMENT  # Only count repayments, not disbursements
     ).scalar() or 0
     
     return max(0, loan.total_due - float(total_paid))
+
 
 
 @router.post("/", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
@@ -74,23 +76,20 @@ async def create_payment(
             detail=f"Loan must be active to make payments. Current status: {loan.status}"
         )
     
-    # Validate phone number matches registered phone for this loan
-    logger.info(f"[PAYMENT DEBUG] CHECKING: Phone number validation")
-    if loan.phone_number:
+    # Log phone number for audit (allow different numbers for payment flexibility)
+    user_phone = current_user.phone  # Use user's current phone from profile
+    if user_phone:
         # Normalize phone numbers for comparison
         submitted_phone = payment_data.phone_number.replace(' ', '').replace('-', '').replace('+254', '0') if hasattr(payment_data, 'phone_number') and payment_data.phone_number else None
-        registered_phone = loan.phone_number.replace(' ', '').replace('-', '').replace('+254', '0')
+        registered_phone = user_phone.replace(' ', '').replace('-', '').replace('+254', '0')
         
         logger.info(f"[PAYMENT DEBUG] Phone comparison: submitted='{submitted_phone}' (raw: '{getattr(payment_data, 'phone_number', None)}') vs registered='{registered_phone}'")
         
         if submitted_phone and submitted_phone != registered_phone:
-            logger.warning(f"[PAYMENT DEBUG] VALIDATION FAILED: Phone number mismatch - submitted: '{submitted_phone}', registered: '{registered_phone}'")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Phone number does not match the registered number for this loan. Submitted: {submitted_phone}, Registered: {registered_phone}"
-            )
+            # Allow payment from different number but log it for audit
+            logger.info(f"[PAYMENT] User {current_user.id} paying from different number: registered={registered_phone}, used={submitted_phone}")
     else:
-        logger.info(f"[PAYMENT DEBUG] No phone number on loan, skipping phone validation")
+        logger.info(f"[PAYMENT DEBUG] No phone number on user profile, skipping phone validation")
     
     # Calculate outstanding balance
     outstanding_balance = calculate_outstanding_balance(db, loan)
@@ -155,9 +154,39 @@ async def create_payment(
         loan.status = LoanStatus.SETTLED
         loan.payment_date = datetime.utcnow()
     
+    # Update perfect repayment streak based on payment timing
+    # Check if payment is on time (before or on due date)
+    is_on_time = datetime.utcnow().date() <= loan.due_date.date() if loan.due_date else True
+    
+    # Bonus points for on-time payment (default 40 from loan parameters)
+    bonus_points = 40
+    
+    if is_on_time:
+        # Increment perfect repayment streak
+        current_user.perfect_repayment_streak = (current_user.perfect_repayment_streak or 0) + 1
+        # Add bonus points to credit score
+        current_user.credit_score = (current_user.credit_score or 150) + bonus_points
+        logger.info(f"[STREAK] User {current_user.id}: On-time payment! Streak: {current_user.perfect_repayment_streak}, +{bonus_points} credit points")
+    else:
+        # Reset streak on late payment
+        old_streak = current_user.perfect_repayment_streak or 0
+        current_user.perfect_repayment_streak = 0
+        logger.info(f"[STREAK] User {current_user.id}: Late payment! Streak reset from {old_streak} to 0")
+    
     db.commit()
     db.refresh(payment)
     db.refresh(loan)
+    db.refresh(current_user)
+    
+    # After successful payment, evaluate user's tier
+    try:
+        from services.tier_service import TierService
+        tier_service = TierService(db)
+        tier_result = tier_service.update_user_tier(current_user.id)
+        if tier_result.get('changed'):
+            logger.info(f"[TIER] User {current_user.id} tier changed: {tier_result['old_tier']} -> {tier_result['new_tier']}")
+    except Exception as tier_error:
+        logger.error(f"[TIER] Error evaluating tier for user {current_user.id}: {tier_error}")
     
     return payment
 
@@ -204,23 +233,20 @@ async def create_payment_no_slash(
             detail=f"Loan must be active to make payments. Current status: {loan.status}"
         )
     
-    # Validate phone number matches registered phone for this loan
-    logger.info(f"[PAYMENT DEBUG] CHECKING: Phone number validation")
-    if loan.phone_number:
+    # Log phone number for audit (allow different numbers for payment flexibility)
+    user_phone = current_user.phone  # Use user's current phone from profile
+    if user_phone:
         # Normalize phone numbers for comparison
         submitted_phone = payment_data.phone_number.replace(' ', '').replace('-', '').replace('+254', '0') if hasattr(payment_data, 'phone_number') and payment_data.phone_number else None
-        registered_phone = loan.phone_number.replace(' ', '').replace('-', '').replace('+254', '0')
+        registered_phone = user_phone.replace(' ', '').replace('-', '').replace('+254', '0')
         
         logger.info(f"[PAYMENT DEBUG] Phone comparison: submitted='{submitted_phone}' (raw: '{getattr(payment_data, 'phone_number', None)}') vs registered='{registered_phone}'")
         
         if submitted_phone and submitted_phone != registered_phone:
-            logger.warning(f"[PAYMENT DEBUG] VALIDATION FAILED: Phone number mismatch - submitted: '{submitted_phone}', registered: '{registered_phone}'")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Phone number does not match the registered number for this loan. Submitted: {submitted_phone}, Registered: {registered_phone}"
-            )
+            # Allow payment from different number but log it for audit
+            logger.info(f"[PAYMENT] User {current_user.id} paying from different number: registered={registered_phone}, used={submitted_phone}")
     else:
-        logger.info(f"[PAYMENT DEBUG] No phone number on loan, skipping phone validation")
+        logger.info(f"[PAYMENT DEBUG] No phone number on user profile, skipping phone validation")
     
     # Calculate outstanding balance
     outstanding_balance = calculate_outstanding_balance(db, loan)
@@ -285,9 +311,39 @@ async def create_payment_no_slash(
         loan.status = LoanStatus.SETTLED
         loan.payment_date = datetime.utcnow()
     
+    # Update perfect repayment streak based on payment timing
+    # Check if payment is on time (before or on due date)
+    is_on_time = datetime.utcnow().date() <= loan.due_date.date() if loan.due_date else True
+    
+    # Bonus points for on-time payment (default 40 from loan parameters)
+    bonus_points = 40
+    
+    if is_on_time:
+        # Increment perfect repayment streak
+        current_user.perfect_repayment_streak = (current_user.perfect_repayment_streak or 0) + 1
+        # Add bonus points to credit score
+        current_user.credit_score = (current_user.credit_score or 150) + bonus_points
+        logger.info(f"[STREAK] User {current_user.id}: On-time payment! Streak: {current_user.perfect_repayment_streak}, +{bonus_points} credit points")
+    else:
+        # Reset streak on late payment
+        old_streak = current_user.perfect_repayment_streak or 0
+        current_user.perfect_repayment_streak = 0
+        logger.info(f"[STREAK] User {current_user.id}: Late payment! Streak reset from {old_streak} to 0")
+    
     db.commit()
     db.refresh(payment)
     db.refresh(loan)
+    db.refresh(current_user)
+    
+    # After successful payment, evaluate user's tier
+    try:
+        from services.tier_service import TierService
+        tier_service = TierService(db)
+        tier_result = tier_service.update_user_tier(current_user.id)
+        if tier_result.get('changed'):
+            logger.info(f"[TIER] User {current_user.id} tier changed: {tier_result['old_tier']} -> {tier_result['new_tier']}")
+    except Exception as tier_error:
+        logger.error(f"[TIER] Error evaluating tier for user {current_user.id}: {tier_error}")
     
     return payment
 

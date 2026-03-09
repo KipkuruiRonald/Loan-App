@@ -113,6 +113,13 @@ export default function PendingApprovalsPage() {
 
   // Handle approve
   const handleApprove = async (appId: number) => {
+    // Prevent multiple approvals at once
+    if (processingId !== null) {
+      setToast({ message: 'Please wait for current approval to complete', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    
     setProcessingId(appId);
     try {
       const token = localStorage.getItem('access_token');
@@ -120,19 +127,24 @@ export default function PendingApprovalsPage() {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       });
+      
       if (res.ok) {
+        const data = await res.json();
         // Add a small delay to ensure database transaction completes
         await new Promise(resolve => setTimeout(resolve, 300));
         // Refresh the data
         await fetchApplications();
         setApplications(prev => prev.filter(app => app.id !== appId));
         setSelectedApp(null);
-        setToast({ message: 'Loan approved successfully! Borrower has been notified.', type: 'success' });
+        setToast({ message: `Loan approved! KSh ${data.amount?.toLocaleString() || '0'} disbursed to ${data.phone_number}`, type: 'success' });
         setTimeout(() => setToast(null), 3000);
+      } else {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Failed to approve loan');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to approve:', err);
-      setToast({ message: 'Failed to approve loan', type: 'error' });
+      setToast({ message: err.message || 'Failed to approve loan', type: 'error' });
       setTimeout(() => setToast(null), 3000);
     } finally {
       setProcessingId(null);
@@ -168,12 +180,15 @@ export default function PendingApprovalsPage() {
         setApplications(prev => prev.filter(app => app.id !== rejectingAppId));
         setSelectedApp(null);
         setShowRejectModal(false);
-        setToast({ message: 'Loan rejected successfully. Feedback sent to borrower.', type: 'success' });
+        setToast({ message: 'Loan rejected. No payment was sent to the borrower.', type: 'success' });
         setTimeout(() => setToast(null), 3000);
+      } else {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Failed to reject loan');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to reject:', err);
-      setToast({ message: 'Failed to reject loan', type: 'error' });
+      setToast({ message: err.message || 'Failed to reject loan', type: 'error' });
       setTimeout(() => setToast(null), 3000);
     } finally {
       setProcessingId(null);
@@ -492,9 +507,16 @@ export default function PendingApprovalsPage() {
                           </button>
                           <button
                             onClick={() => handleApprove(app.id)}
-                            disabled={processingId === app.id}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80"
-                            style={{ backgroundColor: '#6D7464', color: '#D4C8B5' }}
+                            disabled={processingId !== null}
+                            className={`p-2 rounded-lg transition-colors ${
+                              processingId !== null 
+                                ? 'opacity-50 cursor-not-allowed' 
+                                : 'hover:opacity-80'
+                            }`}
+                            style={{ 
+                              backgroundColor: processingId === app.id ? '#6D7464' : '#6D7464', 
+                              color: '#D4C8B5' 
+                            }}
                             title="Approve"
                           >
                             {processingId === app.id ? (
@@ -505,9 +527,16 @@ export default function PendingApprovalsPage() {
                           </button>
                           <button
                             onClick={() => openRejectModal(app.id)}
-                            disabled={processingId === app.id}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80"
-                            style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
+                            disabled={processingId !== null}
+                            className={`p-2 rounded-lg transition-colors ${
+                              processingId !== null 
+                                ? 'opacity-50 cursor-not-allowed' 
+                                : 'hover:opacity-80'
+                            }`}
+                            style={{ 
+                              backgroundColor: '#3E3D39', 
+                              color: '#D4C8B5' 
+                            }}
                             title="Reject"
                           >
                             {processingId === app.id ? (

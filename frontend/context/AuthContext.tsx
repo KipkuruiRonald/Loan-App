@@ -18,6 +18,7 @@ export interface User {
   credit_tier?: number;
   credit_score?: number;
   current_limit?: number;
+  perfect_repayment_streak?: number;  // Added streak field
   // Additional data fetched from database
   profile?: any;
   preferences?: any;
@@ -41,7 +42,7 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'okoleo_auth';
+const STORAGE_KEY = 'okolea_auth';
 const REMEMBER_ME_DAYS = 30;
 const DEFAULT_SESSION_HOURS = 8;
 

@@ -127,7 +127,7 @@ const sections: Section[] = [
           <li><strong>Right to Withdraw Consent:</strong> Withdraw consent at any time</li>
         </ul>
         <p className="mt-4">
-          To exercise these rights, contact us at privacy@okoleo.co.ke
+          To exercise these rights, contact us at privacy@okolea.co.ke
         </p>
       </div>
     )
@@ -220,7 +220,7 @@ const sections: Section[] = [
           <li>SMS to your registered phone number</li>
         </ul>
         <p className="mt-4">
-          Your continued use of Okoleo after such changes constitutes acceptance of the updated 
+          Your continued use of Okolea after such changes constitutes acceptance of the updated 
           Privacy Policy.
         </p>
       </div>
@@ -237,7 +237,7 @@ const sections: Section[] = [
         </p>
         <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
           <p className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Data Protection Officer</p>
-          <p><strong>Email:</strong> privacy@okoleo.co.ke</p>
+          <p><strong>Email:</strong> privacy@okolea.co.ke</p>
           <p><strong>Phone:</strong> +254 700 000 000</p>
           <p><strong>WhatsApp:</strong> 0799 333 014</p>
           <p><strong>Address:</strong> Nairobi, Kenya</p>
@@ -357,7 +357,7 @@ export default function PrivacyPage() {
         >
           <GlassCard hover={false} className="p-6 mb-6">
             <p style={{ color: 'var(--text-secondary)' }}>
-              This Privacy Policy explains how Okoleo (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) collects, uses, 
+              This Privacy Policy explains how Okolea (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) collects, uses, 
               discloses, and safeguards your information when you use our mobile application and services.
             </p>
             <p className="mt-4" style={{ color: 'var(--text-secondary)' }}>
@@ -400,7 +400,7 @@ export default function PrivacyPage() {
         >
           <div className="p-6 rounded-xl" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
             <p className="text-center font-medium" style={{ color: 'var(--text-primary)' }}>
-              By using Okoleo services, you acknowledge that you have read, understood, and consent to the 
+              By using Okolea services, you acknowledge that you have read, understood, and consent to the 
               collection and use of your information as described in this Privacy Policy.
             </p>
           </div>

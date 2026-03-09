@@ -17,11 +17,11 @@ export function Badge({ children, variant = 'default', size = 'md', className = 
   }
   
   const variantClasses = {
-    success: 'badge-success-okoleo',
-    warning: 'badge-warning-okoleo',
-    danger: 'badge-error-okoleo',
-    info: 'badge-info-okoleo',
-    default: 'badge-default-okoleo',
+    success: 'badge-success-okolea',
+    warning: 'badge-warning-okolea',
+    danger: 'badge-error-okolea',
+    info: 'badge-info-okolea',
+    default: 'badge-default-okolea',
   }
   
   return (

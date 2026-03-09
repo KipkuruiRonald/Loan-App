@@ -1,4 +1,4 @@
-// Validation utility functions for the Okoleo Loan App
+// Validation utility functions for the Okolea Loan App
 
 export interface ValidationError {
   field: string;

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
-from typing import List
-from datetime import datetime
+from typing import List, Optional
+from datetime import datetime, timedelta
 
 from core.database import get_db
 from core.security import decode_access_token
@@ -20,6 +20,44 @@ from api.auth import get_current_user
 
 
 # ============================================================================
+# NOTIFICATION CATEGORIES FOR FILTERING
+# ============================================================================
+
+NOTIFICATION_CATEGORIES = {
+    "LOANS": [
+        NotificationType.LOAN_APPROVED,
+        NotificationType.LOAN_DECLINED,
+        NotificationType.LOAN_DISBURSED,
+        NotificationType.LOAN_REPAID,
+    ],
+    "PAYMENTS": [
+        NotificationType.PAYMENT_DUE_REMINDER,
+        NotificationType.PAYMENT_RECEIVED,
+        NotificationType.PAYMENT_FAILED,
+        NotificationType.REPAYMENT_CONFIRMATION,
+    ],
+    "ACCOUNT": [
+        NotificationType.CREDIT_LIMIT_INCREASED,
+        NotificationType.CREDIT_LIMIT_DECREASED,
+        NotificationType.TIER_UPGRADE,
+        NotificationType.TIER_DOWNGRADE,
+        NotificationType.WELCOME_MESSAGE,
+        NotificationType.REFERRAL_BONUS,
+        NotificationType.ACCOUNT_UPDATE,
+    ],
+    "SECURITY": [
+        NotificationType.SECURITY_ALERT,
+        NotificationType.PASSWORD_CHANGED,
+        NotificationType.NEW_DEVICE_LOGIN,
+    ],
+    "SYSTEM": [
+        NotificationType.SYSTEM_MAINTENANCE,
+        NotificationType.PROMOTIONAL,
+    ],
+}
+
+
+# ============================================================================
 # NOTIFICATION CRUD OPERATIONS
 # ============================================================================
 
@@ -28,12 +66,18 @@ async def get_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     include_read: bool = Query(False),
+    notification_type: Optional[NotificationType] = Query(None, description="Filter by notification type"),
+    category: Optional[str] = Query(None, description="Filter by category: LOANS, PAYMENTS, ACCOUNT, SECURITY, SYSTEM"),
+    priority: Optional[NotificationPriority] = Query(None, description="Filter by priority"),
+    search: Optional[str] = Query(None, description="Search in title and message"),
+    start_date: Optional[datetime] = Query(None, description="Filter from date"),
+    end_date: Optional[datetime] = Query(None, description="Filter to date"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get notifications for the current user (role-based filtering).
-    Users only see their notifications, Admins only see admin notifications.
+    Get notifications for the current user with advanced filtering options.
+    Supports filtering by type, category, priority, date range, and search.
     """
     if not current_user:
         raise HTTPException(
@@ -46,8 +90,34 @@ async def get_notifications(
         Notification.user_id == current_user.id
     )
     
+    # Apply filters
     if not include_read:
         query = query.filter(Notification.is_read == False)
+    
+    if notification_type:
+        query = query.filter(Notification.type == notification_type)
+    
+    if category and category.upper() in NOTIFICATION_CATEGORIES:
+        types = NOTIFICATION_CATEGORIES[category.upper()]
+        query = query.filter(Notification.type.in_(types))
+    
+    if priority:
+        query = query.filter(Notification.priority == priority)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Notification.title.ilike(search_pattern),
+                Notification.message.ilike(search_pattern)
+            )
+        )
+    
+    if start_date:
+        query = query.filter(Notification.created_at >= start_date)
+    
+    if end_date:
+        query = query.filter(Notification.created_at <= end_date)
     
     # Get total count
     total = query.count()
@@ -63,6 +133,16 @@ async def get_notifications(
         Notification.user_id == current_user.id,
         Notification.is_read == False
     ).count()
+    
+    # Get counts by category
+    category_counts = {}
+    for cat, types in NOTIFICATION_CATEGORIES.items():
+        count = db.query(Notification).filter(
+            Notification.user_id == current_user.id,
+            Notification.type.in_(types),
+            Notification.is_read == False
+        ).count()
+        category_counts[cat] = count
     
     return NotificationListResponse(
         notifications=notifications,
@@ -342,13 +422,31 @@ async def get_notification_types():
     """Get available notification types for each role"""
     return {
         "user_notifications": [
+            # Loans
             {"type": NotificationType.LOAN_APPROVED, "description": "Loan approved notification"},
             {"type": NotificationType.LOAN_DECLINED, "description": "Loan declined notification"},
+            {"type": NotificationType.LOAN_DISBURSED, "description": "Loan disbursed to M-Pesa"},
+            {"type": NotificationType.LOAN_REPAID, "description": "Loan fully repaid"},
+            # Payments
             {"type": NotificationType.PAYMENT_DUE_REMINDER, "description": "Payment due reminder"},
+            {"type": NotificationType.PAYMENT_RECEIVED, "description": "Payment received"},
+            {"type": NotificationType.PAYMENT_FAILED, "description": "Payment failed"},
+            {"type": NotificationType.REPAYMENT_CONFIRMATION, "description": "Repayment confirmation"},
+            # Account
             {"type": NotificationType.CREDIT_LIMIT_INCREASED, "description": "Credit limit increased"},
+            {"type": NotificationType.CREDIT_LIMIT_DECREASED, "description": "Credit limit decreased"},
             {"type": NotificationType.TIER_UPGRADE, "description": "Tier upgrade notification"},
+            {"type": NotificationType.TIER_DOWNGRADE, "description": "Tier downgrade notification"},
             {"type": NotificationType.WELCOME_MESSAGE, "description": "Welcome message"},
             {"type": NotificationType.REFERRAL_BONUS, "description": "Referral bonus earned"},
+            {"type": NotificationType.ACCOUNT_UPDATE, "description": "Account update notification"},
+            # Security
+            {"type": NotificationType.SECURITY_ALERT, "description": "Security alert"},
+            {"type": NotificationType.PASSWORD_CHANGED, "description": "Password changed"},
+            {"type": NotificationType.NEW_DEVICE_LOGIN, "description": "New device login"},
+            # System
+            {"type": NotificationType.SYSTEM_MAINTENANCE, "description": "System maintenance"},
+            {"type": NotificationType.PROMOTIONAL, "description": "Promotional notification"},
         ],
         "admin_notifications": [
             {"type": NotificationType.NEW_LOAN_APPLICATION, "description": "New loan application pending"},
@@ -358,5 +456,12 @@ async def get_notification_types():
             {"type": NotificationType.SYSTEM_UPDATE, "description": "System update notification"},
             {"type": NotificationType.DAILY_PERFORMANCE_STATS, "description": "Daily performance stats"},
             {"type": NotificationType.USER_REGISTRATION_ALERT, "description": "New user registration"},
+        ],
+        "categories": [
+            {"id": "LOANS", "name": "Loans", "description": "Loan-related notifications"},
+            {"id": "PAYMENTS", "name": "Payments", "description": "Payment and repayment notifications"},
+            {"id": "ACCOUNT", "name": "Account", "description": "Account and tier notifications"},
+            {"id": "SECURITY", "name": "Security", "description": "Security alerts"},
+            {"id": "SYSTEM", "name": "System", "description": "System notifications"},
         ]
     }

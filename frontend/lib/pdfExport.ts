@@ -16,30 +16,45 @@ export const formatDate = (dateString: string): string => {
   });
 };
 
-// Okoleo brand colors - using tuples for TypeScript compatibility
+// Okolea brand colors - using tuples for TypeScript compatibility
 const BRAND_COLORS = {
-  primary: [62, 61, 57] as [number, number, number],    // #3E3D39 - Okoleo dark gray
-  secondary: [212, 200, 181] as [number, number, number], // #D4C8B5 - Okoleo cream
-  accent: [60, 89, 114] as [number, number, number],      // #3C5972 - Okoleo blue
-  muted: [109, 116, 100] as [number, number, number],     // #6D7464 - Okoleo muted
+  primary: [62, 61, 57] as [number, number, number],    // #3E3D39 - Okolea dark gray
+  secondary: [212, 200, 181] as [number, number, number], // #D4C8B5 - Okolea cream
+  accent: [60, 89, 114] as [number, number, number],      // #3C5972 - Okolea blue
+  muted: [109, 116, 100] as [number, number, number],     // #6D7464 - Okolea muted
   light: [245, 247, 250] as [number, number, number],     // Light gray for table rows
 };
 
-// Load logo as base64 - returns null if not found
+// Load logo as base64 - tries multiple sources in order
 async function loadLogoAsBase64(): Promise<string | null> {
-  try {
-    const response = await fetch('/logo.png');
-    if (!response.ok) return null;
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
+  // Try multiple logo sources in order
+  const logoSources = [
+    '/logo.png',
+    '/icons/icon-192x192.png',
+    '/icons/icon-152x152.png',
+    '/favicon.ico',
+  ];
+
+  for (const source of logoSources) {
+    try {
+      const response = await fetch(source);
+      if (response.ok) {
+        const blob = await response.blob();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(blob);
+        });
+        return base64;
+      }
+    } catch {
+      // Continue to next source
+      continue;
+    }
   }
+  
+  return null;
 }
 
 // Export Loans to PDF with company branding
@@ -55,7 +70,7 @@ export const exportLoansToPDF = async (loans: any[], summary: any): Promise<void
     // Fallback: Add text-based header if no logo
     doc.setFontSize(22);
     doc.setTextColor(BRAND_COLORS.primary[0], BRAND_COLORS.primary[1], BRAND_COLORS.primary[2]);
-    doc.text('Okoleo', 14, 20);
+    doc.text('Okolea', 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(BRAND_COLORS.muted[0], BRAND_COLORS.muted[1], BRAND_COLORS.muted[2]);
@@ -85,11 +100,24 @@ export const exportLoansToPDF = async (loans: any[], summary: any): Promise<void
   doc.setFontSize(10);
   doc.setTextColor(5, 5, 5); // Near black
   const startY = logoBase64 ? 68 : 73;
-  doc.text(`Active Loans: ${summary.active_loans || loans.length}`, 14, startY);
-  doc.text(`Total Outstanding: ${formatCurrency(summary.total_outstanding || 0)}`, 14, startY + 7);
-  doc.text(`Total Paid: ${formatCurrency(summary.total_paid || 0)}`, 14, startY + 14);
-  doc.text(`Credit Tier: ${summary.credit_tier || 1}`, 14, startY + 21);
-  doc.text(`Credit Limit: ${formatCurrency(summary.credit_limit || 500)}`, 14, startY + 28);
+  
+  // Enhanced summary with more details
+  doc.text(`Total Loans: ${summary.total_loans || summary.active_loans || loans.length || 0}`, 14, startY);
+  doc.text(`Active Loans: ${summary.active_loans || 0}`, 14, startY + 7);
+  doc.text(`Pending Loans: ${summary.pending_loans || 0}`, 14, startY + 14);
+  doc.text(`Settled Loans: ${summary.settled_loans || 0}`, 14, startY + 21);
+  doc.text(`Total Outstanding: ${formatCurrency(summary.total_outstanding || 0)}`, 14, startY + 28);
+  doc.text(`Total Repaid: ${formatCurrency(summary.total_repaid || summary.total_paid || 0)}`, 14, startY + 35);
+  
+  // Add next payment info if applicable
+  if (summary.next_payment > 0 && summary.next_due_date) {
+    doc.setTextColor(BRAND_COLORS.accent[0], BRAND_COLORS.accent[1], BRAND_COLORS.accent[2]);
+    doc.text(`Next Payment: ${formatCurrency(summary.next_payment)}`, 14, startY + 42);
+    doc.text(`Due Date: ${new Date(summary.next_due_date).toLocaleDateString('en-KE')}`, 14, startY + 49);
+  }
+  
+  // Calculate table start Y position based on whether next payment info is shown
+  const tableStartY = summary.next_payment > 0 ? startY + 58 : startY + 45;
   
   // Add loans table
   const tableData = loans.map(loan => [
@@ -104,7 +132,7 @@ export const exportLoansToPDF = async (loans: any[], summary: any): Promise<void
   ]);
   
   autoTable(doc, {
-    startY: startY + 38,
+    startY: tableStartY,
     head: [['Loan ID', 'Principal', 'Rate', 'Total Due', 'Balance', 'Status', 'Due Date', 'Perfect']],
     body: tableData,
     theme: 'striped',
@@ -131,7 +159,7 @@ export const exportLoansToPDF = async (loans: any[], summary: any): Promise<void
     
     // Footer text
     doc.text(
-      'Okoleo - Quick Loans for Kenya | This is a computer-generated document',
+      'Okolea - Quick Loans for Kenya | This is a computer-generated document',
       doc.internal.pageSize.getWidth() / 2,
       doc.internal.pageSize.getHeight() - 10,
       { align: 'center' }
@@ -147,7 +175,7 @@ export const exportLoansToPDF = async (loans: any[], summary: any): Promise<void
   }
   
   // Save the PDF
-  const fileName = `okoleo-loans-${new Date().toISOString().split('T')[0]}.pdf`;
+  const fileName = `okolea-loans-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
 };
 
@@ -162,7 +190,7 @@ export const exportTransactionsToPDF = async (transactions: any[]): Promise<void
   } else {
     doc.setFontSize(22);
     doc.setTextColor(BRAND_COLORS.primary[0], BRAND_COLORS.primary[1], BRAND_COLORS.primary[2]);
-    doc.text('Okoleo', 14, 20);
+    doc.text('Okolea', 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(BRAND_COLORS.muted[0], BRAND_COLORS.muted[1], BRAND_COLORS.muted[2]);
@@ -235,7 +263,7 @@ export const exportTransactionsToPDF = async (transactions: any[]): Promise<void
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(
-      'Okoleo - Quick Loans for Kenya | This is a computer-generated document',
+      'Okolea - Quick Loans for Kenya | This is a computer-generated document',
       doc.internal.pageSize.getWidth() / 2,
       doc.internal.pageSize.getHeight() - 10,
       { align: 'center' }
@@ -249,5 +277,5 @@ export const exportTransactionsToPDF = async (transactions: any[]): Promise<void
   }
   
   // Save
-  doc.save(`okoleo-transactions-${new Date().toISOString().split('T')[0]}.pdf`);
+  doc.save(`okolea-transactions-${new Date().toISOString().split('T')[0]}.pdf`);
 };

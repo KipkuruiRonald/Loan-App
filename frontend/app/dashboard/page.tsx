@@ -10,16 +10,14 @@ import {
   Target, 
   FileText, 
   TrendingUp, 
-  TrendingDown,
   Clock,
   ArrowRight,
-  Sparkles,
   DollarSign,
   AlertCircle,
   CheckCircle
 } from 'lucide-react';
-import { useAuth, isAdmin, getRedirectPath } from '@/context/AuthContext';
-import { loansApi, settingsApi } from '@/lib/api';
+import { useAuth, isAdmin } from '@/context/AuthContext';
+import { loansApi } from '@/lib/api';
 import GlassCard from '@/components/GlassCard';
 import StatCard from '@/components/StatCard';
 
@@ -68,11 +66,6 @@ export default function DashboardPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [creditTrend, setCreditTrend] = useState<{
-    change: number;
-    change_percent: number;
-    trend: 'up' | 'down' | 'neutral';
-  }>({ change: 0, change_percent: 0, trend: 'neutral' });
 
   useEffect(() => {
     // Redirect admins to admin dashboard
@@ -117,6 +110,68 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, user, router]);
 
+  // ============================================================
+  // TIER PROGRESS CALCULATIONS (from database)
+  // ============================================================
+  
+  // Calculate progress to next tier based on perfect repayment streak
+  const calculateProgress = () => {
+    const currentTier = user?.credit_tier || 1;
+    const streak = user?.perfect_repayment_streak || 0;
+    
+    // Define requirements for each tier
+    const tierRequirements: Record<number, { next: number | null; required: number | null }> = {
+      1: { next: 2, required: 3 }, // Bronze → Silver: 3 on-time repayments
+      2: { next: 3, required: 6 }, // Silver → Gold: 6 on-time repayments
+      3: { next: 4, required: 12 }, // Gold → Platinum: 12 on-time repayments
+      4: { next: null, required: null } // Platinum is max tier
+    };
+    
+    const requirements = tierRequirements[currentTier] || tierRequirements[1];
+    
+    // If at max tier, return 100%
+    if (!requirements.next) return 100;
+    
+    // Calculate percentage (cap at 100%)
+    const progress = Math.min(Math.round((streak / (requirements.required || 1)) * 100), 100);
+    return progress;
+  };
+
+  // Get dynamic message based on progress
+  const getProgressMessage = () => {
+    const currentTier = user?.credit_tier || 1;
+    const streak = user?.perfect_repayment_streak || 0;
+    
+    const nextTierNames: Record<number, string | null> = {
+      1: 'Silver',
+      2: 'Gold',
+      3: 'Platinum',
+      4: null
+    };
+    
+    const tierRequirements: Record<number, number | null> = {
+      1: 3,
+      2: 6,
+      3: 12,
+      4: null
+    };
+    
+    // If at max tier
+    if (currentTier === 4) {
+      return "You're at the highest tier! Great job!";
+    }
+    
+    const required = tierRequirements[currentTier] || 3;
+    const remaining = required - streak;
+    const nextTier = nextTierNames[currentTier];
+    
+    if (remaining <= 0) {
+      return `You've qualified for ${nextTier}! Waiting for admin review.`;
+    }
+    
+    return `${remaining} more on-time ${remaining === 1 ? 'repayment' : 'repayments'} to reach ${nextTier}`;
+  };
+
   // Calculate stats from loans - with defensive checks
   const activeLoans = Array.isArray(loans) ? loans.filter(l => l.status === 'ACTIVE' || l.status === 'CURRENT') : [];
   const pendingLoans = Array.isArray(loans) ? loans.filter(l => l.status === 'PENDING') : [];
@@ -160,7 +215,7 @@ export default function DashboardPage() {
   // Get tier info
   const tierInfo = {
     tier: user?.credit_tier || 1,
-    creditScore: user?.credit_score || 0,
+    creditScore: user?.credit_score ?? 0,
     currentLimit: user?.current_limit || 5000,
   };
 
@@ -170,7 +225,7 @@ export default function DashboardPage() {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'KES',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
@@ -213,10 +268,8 @@ export default function DashboardPage() {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3 mb-2"
         >
-          <Sparkles className="h-8 w-8" style={{ color: 'var(--accent-primary)' }} />
-          <h1 className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
             Welcome back, {user?.full_name?.split(' ')[0] || user?.username || 'there'}!
           </h1>
         </motion.div>
@@ -245,7 +298,7 @@ export default function DashboardPage() {
           <motion.div variants={itemVariants}>
             <StatCard
               title="Credit Score"
-              value={tierInfo.creditScore.toString()}
+              value={tierInfo.creditScore === 0 ? '—' : tierInfo.creditScore.toString()}
               icon={TrendingUp}
               change="+0%"
               trend="up"
@@ -273,39 +326,34 @@ export default function DashboardPage() {
 
         {/* Tier Badge and Quick Actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Tier Card */}
+          {/* Tier Badge with Progress from Database */}
           <motion.div variants={itemVariants} className="lg:col-span-1">
-            <GlassCard className="h-full">
-              <div className="flex items-center gap-4 mb-4">
-                <div 
-                  className="w-14 h-14 rounded-xl flex items-center justify-center"
-                  style={{ backgroundColor: 'var(--accent-primary)' }}
-                >
-                  <Sparkles className="w-7 h-7 text-white" />
-                </div>
+            <GlassCard className="h-full p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <Target className="h-8 w-8" style={{ color: 'var(--text-primary)' }} />
                 <div>
-                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your Tier</p>
-                  <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-                    {tierName}
-                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Your Tier</p>
+                  <p className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{tierName}</p>
                 </div>
               </div>
-              <div className="space-y-3">
+              
+              {/* Progress information from database */}
+              <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <span style={{ color: 'var(--text-secondary)' }}>Progress to next tier</span>
-                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>65%</span>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Progress to next tier</span>
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{calculateProgress()}%</span>
                 </div>
-                <div className="h-2 rounded-full" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
+                <div className="h-1.5 rounded-full" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
                   <motion.div 
                     className="h-full rounded-full"
                     style={{ backgroundColor: 'var(--accent-primary)' }}
                     initial={{ width: 0 }}
-                    animate={{ width: '65%' }}
+                    animate={{ width: `${calculateProgress()}%` }}
                     transition={{ duration: 1, delay: 0.3 }}
                   />
                 </div>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  Make on-time repayments to increase your tier
+                  {getProgressMessage()}
                 </p>
               </div>
             </GlassCard>

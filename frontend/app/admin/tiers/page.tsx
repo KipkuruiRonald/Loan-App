@@ -37,7 +37,9 @@ export default function TierSettingsPage() {
   const [editing, setEditing] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [evalMessage, setEvalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     fetchTierSettings();
@@ -80,6 +82,29 @@ export default function TierSettingsPage() {
       setDistribution(data);
     } catch (err) {
       console.error('Failed to fetch distribution:', err);
+    }
+  };
+
+  const evaluateAllUsers = async () => {
+    setEvaluating(true);
+    setEvalMessage(null);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/tiers/evaluate-all`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setEvalMessage({ 
+        type: 'success', 
+        text: data.message || `Evaluated ${data.details?.total || 0} users, updated ${data.details?.updated || 0}` 
+      });
+      fetchDistribution(); // Refresh distribution after evaluation
+    } catch (err) {
+      console.error('Failed to evaluate users:', err);
+      setEvalMessage({ type: 'error', text: 'Failed to evaluate users' });
+    } finally {
+      setEvaluating(false);
     }
   };
 
@@ -164,6 +189,33 @@ export default function TierSettingsPage() {
                 {saveMessage.text}
               </span>
             )}
+            {evalMessage && (
+              <span 
+                className={`text-sm px-3 py-1 rounded-full ${
+                  evalMessage.type === 'success' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}
+              >
+                {evalMessage.text}
+              </span>
+            )}
+            <button
+              onClick={evaluateAllUsers}
+              disabled={evaluating}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+              style={{ 
+                backgroundColor: '#10B981', 
+                color: 'white' 
+              }}
+            >
+              {evaluating ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <TrendingUp className="w-4 h-4" />
+              )}
+              Evaluate All Users
+            </button>
             <button
               onClick={handleSave}
               disabled={saving}

@@ -1,16 +1,30 @@
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, cast, String
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
+from pydantic import BaseModel
+
 from core.database import get_db
-from models.models import User, UserRole, AuditLog, Loan, LoanStatus, Transaction, TransactionType, TransactionStatus, Notification, NotificationType, NotificationPriority, SystemSettings, UserProfile
+from models.models import User, UserRole, AuditLog, Loan, LoanStatus, Transaction, TransactionType, TransactionStatus, Notification, NotificationType, NotificationPriority, SystemSettings, UserProfile, SystemMaintenance
 from schemas.schemas import AuditLogResponse, UserResponse, AdminUserResponse
 from api.auth import get_current_user, require_role
+from services.balance_service import BalanceService
+from services.sms_service import sms_service, SMSService
 
 router = APIRouter()
+
+
+class UserUpdateSchema(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """Require admin role"""
@@ -28,7 +42,7 @@ async def get_admin_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get admin dashboard statistics"""
+    """Get comprehensive admin statistics"""
     try:
         # Count active loans
         active_loans = db.query(Loan).filter(Loan.status == 'ACTIVE').count()
@@ -40,17 +54,56 @@ async def get_admin_stats(
         total_users = db.query(User).count()
         
         # Calculate default rate
-        total_loans = db.query(Loan).count()
+        total_loans_count = db.query(Loan).count()
         defaulted_loans = db.query(Loan).filter(Loan.status == 'DEFAULTED').count()
-        default_rate = (defaulted_loans / total_loans * 100) if total_loans > 0 else 0
+        default_rate = (defaulted_loans / total_loans_count * 100) if total_loans_count > 0 else 0
         
         # Calculate portfolio value (sum of total_due for active loans)
         portfolio_value = db.query(func.sum(Loan.total_due)).filter(Loan.status == 'ACTIVE').scalar() or 0
         
         # Calculate disbursed today (sum of principal for loans created today)
-        from datetime import datetime, timedelta
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         disbursed_today = db.query(func.sum(Loan.principal)).filter(Loan.created_at >= today_start).scalar() or 0
+        
+        # Total disbursed all time
+        total_disbursed = db.query(func.sum(Loan.principal)).scalar() or 0
+        
+        # Total repaid
+        total_repaid = db.query(func.sum(Transaction.amount)).filter(
+            Transaction.type == "REPAYMENT",
+            Transaction.status == "CONFIRMED"
+        ).scalar() or 0
+        
+        # Outstanding balance - sum of total_due for ACTIVE loans
+        outstanding = db.query(func.sum(Loan.total_due)).filter(
+            Loan.status == "ACTIVE"
+        ).scalar() or 0
+        
+        # If total_due is not populated, calculate from principal + interest
+        if outstanding == 0 and active_loans > 0:
+            # Fallback calculation
+            active_loan_records = db.query(Loan).filter(Loan.status == "ACTIVE").all()
+            outstanding = sum(float(loan.principal or 0) + float(loan.interest_amount or 0) for loan in active_loan_records)
+        
+        # Recent loans for charts (last 30 days)
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        recent_loans_query = db.query(
+            func.date(Loan.created_at).label('date'),
+            func.count(Loan.id).label('count'),
+            func.sum(Loan.principal).label('total')
+        ).filter(
+            Loan.created_at >= thirty_days_ago
+        ).group_by(
+            func.date(Loan.created_at)
+        ).order_by(
+            func.date(Loan.created_at)
+        ).all()
+        
+        # Loan status breakdown
+        status_counts = db.query(
+            Loan.status,
+            func.count(Loan.id).label('count')
+        ).group_by(Loan.status).all()
         
         return {
             "active_loans": active_loans,
@@ -59,10 +112,43 @@ async def get_admin_stats(
             "default_rate": round(default_rate, 2),
             "portfolio_value": float(portfolio_value),
             "disbursed_today": float(disbursed_today),
+            "total_disbursed": float(total_disbursed),
+            "total_repaid": float(total_repaid),
+            "outstanding": float(outstanding),
+            "recent_loans": [
+                {
+                    "date": r.date.isoformat() if r.date else None,
+                    "count": r.count,
+                    "total": float(r.total or 0)
+                } for r in recent_loans_query
+            ],
+            "status_breakdown": [
+                {
+                    "status": s.status.value if s.status else None,
+                    "count": s.count
+                } for s in status_counts
+            ],
             "user_tiers": {},
         }
     except Exception as e:
         print(f"ERROR in get_admin_stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "active_loans": 0,
+            "pending_approvals": 0,
+            "total_users": 0,
+            "default_rate": 0,
+            "portfolio_value": 0,
+            "disbursed_today": 0,
+            "total_disbursed": 0,
+            "total_repaid": 0,
+            "outstanding": 0,
+            "recent_loans": [],
+            "status_breakdown": [],
+            "user_tiers": {},
+            "error": str(e)
+        }
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -114,29 +200,75 @@ async def approve_loan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role([UserRole.ADMIN]))
 ):
-    """Approve a loan application"""
+    """Approve a loan application and trigger M-Pesa B2C disbursement"""
     try:
-        loan = db.query(Loan).filter(Loan.id == loan_id).first()
+        # Lock the loan row to prevent concurrent approvals
+        loan = db.query(Loan).filter(Loan.id == loan_id).with_for_update().first()
         
         if not loan:
             raise HTTPException(status_code=404, detail="Loan not found")
         
+        # Check if already processed
+        if loan.status != LoanStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail=f"Loan already {loan.status.value}. Cannot approve."
+            )
+        
+        # Check for existing pending/confirmed disbursement transaction
+        existing = db.query(Transaction).filter(
+            Transaction.loan_id == loan_id,
+            Transaction.type == TransactionType.DISBURSEMENT,
+            Transaction.status.in_([TransactionStatus.PROCESSING, TransactionStatus.CONFIRMED])
+        ).first()
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Loan already has a pending or completed disbursement"
+            )
+        
+        # Set status to PROCESSING to prevent concurrent approvals
+        loan.status = LoanStatus.PROCESSING
+        db.commit()
+        
+        # Initialize balance service
+        balance_service = BalanceService(db)
+        
+        # Check if company has enough funds for disbursement
+        eligible, message = balance_service.check_disbursement_eligibility(loan.principal)
+        if not eligible:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=message
+            )
+        
+        # Get borrower's phone
+        user = db.query(User).filter(User.id == loan.borrower_id).first()
+        if not user or not user.phone:
+            raise HTTPException(status_code=400, detail="Borrower has no phone number")
+        
+        # Process actual B2C disbursement via M-Pesa
+        disbursement_result = balance_service.process_disbursement(
+            user_id=loan.borrower_id,
+            amount=loan.principal,
+            loan_id=loan.id,
+            phone_number=user.phone
+        )
+        
+        if not disbursement_result.get("success"):
+            # Revert status to PENDING on failure
+            loan.status = LoanStatus.PENDING
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=disbursement_result.get("message", "Failed to process disbursement")
+            )
+        
+        # Loan status updates to ACTIVE only after successful disbursement
         loan.status = LoanStatus.ACTIVE
         
-        # Create disbursement transaction for the loan
-        tx_id = f"TXN-{uuid.uuid4().hex[:12].upper()}"
-        disbursement = Transaction(
-            transaction_id=tx_id,
-            borrower_id=loan.borrower_id,
-            loan_id=loan.id,
-            type=TransactionType.DISBURSEMENT,
-            amount=loan.principal,
-            remaining_balance=loan.total_due,
-            status=TransactionStatus.CONFIRMED,
-            confirmed_at=datetime.utcnow()
-        )
-        db.add(disbursement)
-        
+        # Commit all changes
         db.commit()
         
         # Create audit log
@@ -147,7 +279,7 @@ async def approve_loan(
             entity_id=str(loan_id),
             old_value='PENDING',
             new_value='ACTIVE',
-            details=f'Loan {loan.loan_id} approved by admin {current_user.username}'
+            details=f'Loan {loan.loan_id} approved. KSh {loan.principal} disbursed to {user.phone}. Transaction: {disbursement_result.get("transaction_id")}'
         )
         db.add(audit)
         
@@ -156,7 +288,7 @@ async def approve_loan(
             user_id=loan.borrower_id,
             type=NotificationType.LOAN_APPROVED,
             title="Loan Approved ✓",
-            message=f"Your loan application for KSh {loan.principal:,.0f} has been approved. Funds will be disbursed to your M-Pesa shortly.",
+            message=f"Your loan application for KSh {loan.principal:,.0f} has been approved. Funds have been sent to your M-Pesa.",
             priority=NotificationPriority.HIGH,
             related_entity_type="LOAN",
             related_entity_id=loan.id
@@ -164,7 +296,14 @@ async def approve_loan(
         db.add(notification)
         db.commit()
         
-        return {"message": "Loan approved successfully", "loan_id": loan_id}
+        return {
+            "success": True,
+            "message": "Loan approved and disbursement initiated",
+            "loan_id": loan.loan_id,
+            "transaction_id": disbursement_result.get("transaction_id"),
+            "amount": loan.principal,
+            "phone_number": user.phone
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -181,13 +320,24 @@ async def reject_loan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role([UserRole.ADMIN]))
 ):
-    """Reject a loan application"""
+    """
+    Reject a loan application.
+    NO M-Pesa transaction occurs - just status update and notification.
+    """
     try:
         loan = db.query(Loan).filter(Loan.id == loan_id).first()
         
         if not loan:
             raise HTTPException(status_code=404, detail="Loan not found")
         
+        # Check if already processed
+        if loan.status != LoanStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Loan already {loan.status}. Cannot reject."
+            )
+        
+        # Update loan status - NO PAYMENT, just rejection
         loan.status = LoanStatus.REJECTED
         db.commit()
         
@@ -197,7 +347,9 @@ async def reject_loan(
             action='LOAN_REJECTED',
             entity_type='Loan',
             entity_id=loan_id,
-            details=f'Loan {loan.loan_id} rejected: {reason}'
+            old_value='PENDING',
+            new_value='REJECTED',
+            details=f'Loan {loan.loan_id} rejected by admin {current_user.username}. Reason: {reason or "No reason provided"}'
         )
         db.add(audit)
         
@@ -215,7 +367,13 @@ async def reject_loan(
         db.add(notification)
         db.commit()
         
-        return {"message": "Loan rejected", "loan_id": loan_id, "reason": reason}
+        return {
+            "success": True,
+            "message": "Loan rejected successfully. No payment sent.",
+            "loan_id": loan.loan_id,
+            "status": "REJECTED",
+            "disbursement": False
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -245,15 +403,26 @@ async def get_admin_loans(
         result = []
         for loan in loans:
             borrower = db.query(User).filter(User.id == loan.borrower_id).first() if loan.borrower_id else None
+            
+            # Calculate current outstanding from transactions
+            total_paid = db.query(func.sum(Transaction.amount)).filter(
+                Transaction.loan_id == loan.id,
+                Transaction.type == "REPAYMENT",
+                Transaction.status == "CONFIRMED"
+            ).scalar() or 0
+            
+            current_outstanding = max(0, (loan.total_due or 0) - total_paid)
+            
             result.append({
                 "id": loan.id,
                 "loan_id": loan.loan_id,
                 "borrower_name": borrower.full_name if borrower else "Unknown",
                 "borrower_id": loan.borrower_id,
-                "principal": loan.principal,
-                "interest_rate": loan.interest_rate,
+                "principal": float(loan.principal or 0),
+                "interest_rate": float(loan.interest_rate or 0),
                 "term_days": loan.term_days,
-                "total_due": loan.total_due,
+                "total_due": float(loan.total_due or 0),
+                "current_outstanding": float(current_outstanding),
                 "status": loan.status.value if loan.status else None,
                 "due_date": loan.due_date.isoformat() if loan.due_date else None,
                 "created_at": loan.created_at.isoformat() if loan.created_at else None,
@@ -609,6 +778,346 @@ async def update_user_status(
         raise
     except Exception as e:
         print(f"ERROR in update_user_status: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: int,
+    user_data: UserUpdateSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Update user details (Admin only) - preserves all data integrity"""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Don't allow admin to deactivate themselves
+        if user.id == current_user.id and user_data.is_active == False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="You cannot deactivate your own account"
+            )
+        
+        # Update only provided fields
+        update_data = user_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            if field == 'role' and value:
+                try:
+                    user.role = UserRole(value)
+                except ValueError:
+                    pass
+            else:
+                setattr(user, field, value)
+        
+        user.updated_at = datetime.utcnow()
+        
+        # Log the action for audit trail
+        audit_log = AuditLog(
+            user_id=current_user.id,
+            action="USER_UPDATED",
+            entity_type="USER",
+            entity_id=str(user_id),
+            old_value=str({k: getattr(user, k) for k in update_data.keys() if hasattr(user, k)}),
+            new_value=str(update_data),
+            details=f"Admin {current_user.id} updated user {user_id}"
+        )
+        db.add(audit_log)
+        
+        db.commit()
+        db.refresh(user)
+        
+        return {
+            "id": user.id,
+            "full_name": user.full_name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role.value if user.role else None,
+            "is_active": user.is_active,
+            "updated_at": user.updated_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in update_user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Soft delete user - sets is_active=False, preserves all historical data"""
+    try:
+        # Prevent self-deletion
+        if user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot delete your own account"
+            )
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Check if user has active loans
+        active_loans = db.query(Loan).filter(
+            Loan.borrower_id == user_id,
+            Loan.status.in_(["ACTIVE", "PENDING"])
+        ).count()
+        
+        if active_loans > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete user with {active_loans} active loan(s). Settle loans first."
+            )
+        
+        # Store old values for audit
+        old_values = {
+            "is_active": user.is_active,
+            "email": user.email,
+            "full_name": user.full_name
+        }
+        
+        # SOFT DELETE - just deactivate
+        user.is_active = False
+        user.email = f"deleted_{user.id}_{user.email}"  # Anonymize email
+        user.phone = None  # Remove phone
+        user.updated_at = datetime.utcnow()
+        
+        # Log the deletion for audit trail
+        audit_log = AuditLog(
+            user_id=current_user.id,
+            action="USER_DELETED",
+            entity_type="USER",
+            entity_id=str(user_id),
+            old_value=str(old_values),
+            new_value=str({"is_active": False, "status": "deleted"}),
+            details=f"Admin {current_user.id} soft deleted user {user_id}"
+        )
+        db.add(audit_log)
+        
+        db.commit()
+        
+        return {
+            "message": "User deactivated successfully",
+            "user_id": user_id,
+            "status": "deleted",
+            "note": "User data preserved for historical records"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in delete_user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/users/{user_id}/restore")
+async def restore_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Restore a soft-deleted user"""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Restore user
+        user.is_active = True
+        # Restore email if it was anonymized
+        if user.email and user.email.startswith(f"deleted_{user_id}_"):
+            user.email = user.email.replace(f"deleted_{user_id}_", "")
+        user.updated_at = datetime.utcnow()
+        
+        # Log restoration
+        audit_log = AuditLog(
+            user_id=current_user.id,
+            action="USER_RESTORED",
+            entity_type="USER",
+            entity_id=str(user_id),
+            details=f"Admin {current_user.id} restored user {user_id}"
+        )
+        db.add(audit_log)
+        
+        db.commit()
+        
+        return {"message": "User restored successfully", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in restore_user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SendMessageRequest(BaseModel):
+    message: str
+
+
+@router.post("/users/{user_id}/message")
+async def send_user_message(
+    user_id: int,
+    request: SendMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Send an SMS message to a user using their registered phone number"""
+    try:
+        # Get user details
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # Check if user has phone number (from User model)
+        if not user.phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User has no phone number registered"
+            )
+        
+        # Initialize SMS service
+        sms_service = SMSService()
+        
+        # Prepare message with admin signature
+        full_message = f"Message from Okolea Admin ({current_user.full_name}): {request.message}"
+        
+        # Send SMS using user.phone
+        result = sms_service.send_sms(user.phone, full_message)
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to send SMS: {result.get('error', 'Unknown error')}"
+            )
+        
+        # Create audit log
+        audit_log = AuditLog(
+            user_id=current_user.id,
+            action="SMS_SENT",
+            entity_type="USER",
+            entity_id=str(user_id),
+            details=f"Admin sent SMS to user {user_id}. Message ID: {result.get('message_id')}"
+        )
+        db.add(audit_log)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "SMS sent successfully",
+            "message_id": result.get("message_id"),
+            "recipient": user.phone
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in send_user_message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/users/{user_id}/delete-check")
+async def check_user_delete_eligibility(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Check if user can be deleted - returns warnings and blocks self-deletion"""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # BLOCK SELF-DELETION
+        if user_id == current_user.id:
+            return {
+                "can_delete": False,
+                "self_delete": True,
+                "warnings": ["You cannot delete your own account"],
+                "financial_summary": {},
+                "user_id": user_id
+            }
+        
+        warnings = []
+        financial_summary = {}
+        can_delete = True
+        
+        # Financial checks - active loans
+        active_loans = db.query(Loan).filter(
+            Loan.borrower_id == user_id,
+            Loan.status.in_(["ACTIVE", "PENDING"])
+        ).all()
+        
+        if active_loans:
+            total = sum(loan.total_due or 0 for loan in active_loans)
+            warnings.append(f"{len(active_loans)} active loan(s): KSh {total:,.2f}")
+            financial_summary["active_loans"] = {"count": len(active_loans), "total": total}
+            can_delete = False
+        
+        # Financial checks - overdue loans
+        overdue_loans = db.query(Loan).filter(
+            Loan.borrower_id == user_id,
+            Loan.status == "ACTIVE",
+            Loan.due_date < datetime.now()
+        ).all()
+        
+        if overdue_loans:
+            total = sum(loan.total_due or 0 for loan in overdue_loans)
+            warnings.append(f"{len(overdue_loans)} overdue loan(s): KSh {total:,.2f}")
+            financial_summary["overdue_loans"] = {"count": len(overdue_loans), "total": total}
+            can_delete = False
+        
+        # Financial checks - pending transactions
+        pending_tx = db.query(Transaction).filter(
+            Transaction.borrower_id == user_id,
+            Transaction.status == "PENDING"
+        ).all()
+        
+        if pending_tx:
+            total = sum(t.amount for t in pending_tx)
+            warnings.append(f"{len(pending_tx)} pending transaction(s): KSh {total:,.2f}")
+            financial_summary["pending_transactions"] = {"count": len(pending_tx), "total": total}
+            can_delete = False
+        
+        return {
+            "can_delete": can_delete,
+            "warnings": warnings,
+            "financial_summary": financial_summary,
+            "user_id": user_id,
+            "user_name": user.full_name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in check_user_delete_eligibility: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1149,6 +1658,63 @@ async def get_tier_distribution(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/tiers/evaluate-user/{user_id}")
+async def evaluate_user_tier(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Evaluate and update a single user's tier"""
+    from services.tier_service import TierService
+    
+    service = TierService(db)
+    result = service.update_user_tier(user_id)
+    
+    if not result['success']:
+        raise HTTPException(status_code=404, detail=result['message'])
+    
+    return result
+
+
+@router.post("/tiers/evaluate-all")
+async def evaluate_all_users_tiers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Evaluate all users for tier updates"""
+    from services.tier_service import TierService
+    
+    service = TierService(db)
+    result = service.evaluate_all_users()
+    
+    return {
+        "message": f"Evaluated {result['total']} users. Updated {result['updated']} users.",
+        "details": result
+    }
+
+
+@router.get("/tiers/user-status/{user_id}")
+async def get_user_tier_status(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Get detailed tier status for a user"""
+    from services.tier_service import TierService
+    
+    service = TierService(db)
+    metrics = service.calculate_user_metrics(user_id)
+    recommended_tier = service.determine_appropriate_tier(user_id)
+    
+    return {
+        "user_id": user_id,
+        "current_tier": metrics['current_tier'],
+        "recommended_tier": recommended_tier,
+        "credit_score": metrics['current_score'],
+        "metrics": metrics
+    }
+
+
 # ============================================================================
 # KYC VERIFICATION ADMIN ENDPOINTS
 # ============================================================================
@@ -1197,7 +1763,7 @@ async def verify_kyc(
     if profile.kyc_status == "VERIFIED":
         raise HTTPException(status_code=400, detail="User is already verified")
     
-    from datetime import datetime
+    from datetime import datetime, timedelta
     profile.kyc_status = "VERIFIED"
     profile.kyc_verified_at = datetime.utcnow()
     profile.kyc_rejection_reason = None
@@ -1239,3 +1805,102 @@ async def reject_kyc(
         "kyc_status": profile.kyc_status,
         "kyc_rejection_reason": reason
     }
+
+
+# ============================================================================
+# Maintenance Mode Endpoints
+# ============================================================================
+
+class MaintenanceToggleSchema(BaseModel):
+    enabled: bool
+    message: Optional[str] = None
+    duration_minutes: Optional[int] = None
+
+
+@router.post("/maintenance/toggle")
+async def toggle_maintenance(
+    request: Request,
+    data: MaintenanceToggleSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Enable or disable maintenance mode"""
+    try:
+        print(f"[MAINTENANCE TOGGLE] Received request: enabled={data.enabled}, duration_minutes={data.duration_minutes}")
+        
+        # Get or create maintenance record
+        maintenance = db.query(SystemMaintenance).first()
+        if not maintenance:
+            maintenance = SystemMaintenance()
+            db.add(maintenance)
+        
+        # Update settings
+        maintenance.is_enabled = data.enabled
+        maintenance.message = data.message or "System is under scheduled maintenance. Please check back later."
+        maintenance.created_by = current_user.id
+        
+        if data.enabled:
+            maintenance.start_time = datetime.utcnow()
+            if data.duration_minutes:
+                maintenance.end_time = datetime.utcnow() + timedelta(minutes=data.duration_minutes)
+                maintenance.estimated_duration = data.duration_minutes
+                print(f"[MAINTENANCE TOGGLE] Set end_time to: {maintenance.end_time}")
+        else:
+            maintenance.end_time = datetime.utcnow()
+        
+        db.commit()
+        
+        # Update app state
+        request.app.state.maintenance_mode = {
+            "enabled": data.enabled,
+            "message": maintenance.message,
+            "end_time": maintenance.end_time.isoformat() if maintenance.end_time else None
+        }
+        
+        print(f"[MAINTENANCE TOGGLE] Returning end_time: {maintenance.end_time}")
+        
+        return {
+            "success": True,
+            "enabled": data.enabled,
+            "message": maintenance.message,
+            "end_time": maintenance.end_time
+        }
+    except Exception as e:
+        print(f"Error toggling maintenance: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/maintenance/status")
+async def get_maintenance_status(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Get current maintenance status"""
+    try:
+        maintenance = db.query(SystemMaintenance).first()
+        
+        if maintenance and maintenance.is_enabled:
+            response_data = {
+                "enabled": True,
+                "message": maintenance.message,
+                "start_time": maintenance.start_time.isoformat() if maintenance.start_time else None,
+                "end_time": maintenance.end_time.isoformat() if maintenance.end_time else None,
+                "estimated_duration": maintenance.estimated_duration
+            }
+            print(f"[MAINTENANCE STATUS] Returning: {response_data}")
+            response = JSONResponse(content=response_data)
+        else:
+            print("[MAINTENANCE STATUS] Maintenance not enabled")
+            response = JSONResponse(content={"enabled": False})
+        
+        # Add CORS headers
+        response.headers["Access-Control-Allow-Origin"] = "http://localhost:3000"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
+    except Exception as e:
+        print(f"Error getting maintenance status: {str(e)}")
+        response = JSONResponse(content={"enabled": False})
+        response.headers["Access-Control-Allow-Origin"] = "http://localhost:3000"
+        return response

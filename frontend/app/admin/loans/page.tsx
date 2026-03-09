@@ -30,7 +30,7 @@ interface Loan {
   interest_rate: number;
   term_days: number;
   total_due: number;
-  outstanding_balance: number;
+  current_outstanding: number;
   phone_number: string;
   status: 'PENDING' | 'ACTIVE' | 'SETTLED' | 'REJECTED' | 'DEFAULTED';
   due_date: string;
@@ -181,18 +181,18 @@ export default function LoanMonitoringPage() {
 
   // Calculate real stats from loan data
   const totalPrincipal = loans.reduce((sum, loan) => sum + loan.principal, 0);
-  const totalOutstanding = loans.reduce((sum, loan) => sum + (loan.outstanding_balance || 0), 0);
+  const totalOutstanding = loans.reduce((sum, loan) => sum + (loan.current_outstanding || 0), 0);
   const activeLateCount = loans.filter(l => l.status === 'ACTIVE' && l.late_days > 0).length;
 
   const stats = [
     { 
       label: 'Total Disbursed', 
-      value: `KSh ${(totalPrincipal / 1000000).toFixed(1)}M`, 
+      value: `KSh ${totalPrincipal.toLocaleString()}`, 
       icon: DollarSign 
     },
     { 
       label: 'Outstanding', 
-      value: `KSh ${(totalOutstanding / 1000000).toFixed(1)}M`, 
+      value: `KSh ${totalOutstanding.toLocaleString()}`, 
       icon: TrendingUp 
     },
     { 
@@ -311,19 +311,18 @@ export default function LoanMonitoringPage() {
             <table className="w-full">
               <thead>
                 <tr style={{ backgroundColor: '#C4A995' }}>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Borrower</th>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Principal</th>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Outstanding</th>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Due Date</th>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Late Days</th>
-                  <th className="text-left p-4 text-sm font-medium" style={{ color: '#050505' }}>Status</th>
-                  <th className="text-right p-4 text-sm font-medium" style={{ color: '#050505' }}>Actions</th>
+                  <th className="text-left p-3 text-sm font-medium" style={{ color: '#050505' }}>Borrower</th>
+                  <th className="text-left p-3 text-sm font-medium" style={{ color: '#050505' }}>Amount</th>
+                  <th className="text-left p-3 text-sm font-medium" style={{ color: '#050505' }}>Due Date</th>
+                  <th className="text-left p-3 text-sm font-medium" style={{ color: '#050505' }}>Late</th>
+                  <th className="text-left p-3 text-sm font-medium" style={{ color: '#050505' }}>Status</th>
+                  <th className="text-right p-3 text-sm font-medium" style={{ color: '#050505' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedLoans.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center" style={{ color: '#6D7464' }}>
+                    <td colSpan={6} className="p-8 text-center" style={{ color: '#6D7464' }}>
                       No loans found
                     </td>
                   </tr>
@@ -336,45 +335,59 @@ export default function LoanMonitoringPage() {
                       className="border-t"
                       style={{ borderColor: '#B4A58B' }}
                     >
-                      <td className="p-4">
+                      <td className="p-3">
                         <div className="flex items-center gap-3">
                           <div 
-                            className="w-10 h-10 rounded-full flex items-center justify-center"
+                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: '#CABAA1' }}
                           >
-                            <User className="w-5 h-5" style={{ color: '#050505' }} />
+                            <User className="w-4 h-4" style={{ color: '#050505' }} />
                           </div>
-                          <div>
-                            <p className="text-sm font-medium" style={{ color: '#050505' }}>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate" style={{ color: '#050505' }}>
                               {loan.borrower_name}
                             </p>
-                            <p className="text-xs" style={{ color: '#6D7464' }}>
+                            <p className="text-xs truncate" style={{ color: '#6D7464' }}>
                               {loan.loan_id}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="p-4">
-                        <p className="text-sm" style={{ color: '#050505' }}>
-                          KSh {loan.principal?.toLocaleString()}
-                        </p>
+                      <td className="p-3">
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-sm font-bold" style={{ color: '#050505' }}>
+                            KSh {loan.principal?.toLocaleString()} Principal
+                          </p>
+                          <div className="flex items-center gap-2 text-xs">
+                            {/* Always show Due if total_due > 0 */}
+                            {loan.total_due > 0 && (
+                              <span style={{ color: '#6D7464' }}>
+                                Due: KSh {loan.total_due.toLocaleString()}
+                              </span>
+                            )}
+                            {/* Only show Balance for ACTIVE loans with outstanding amount */}
+                            {loan.status === 'ACTIVE' && loan.current_outstanding > 0 && (
+                              <>
+                                {loan.total_due > 0 && <span style={{ color: '#B4A58B' }}>|</span>}
+                                <span style={{ color: '#B8860B' }}>
+                                  Bal: KSh {loan.current_outstanding.toLocaleString()}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="p-4">
-                        <p className="text-sm font-medium" style={{ color: '#050505' }}>
-                          KSh {loan.outstanding_balance?.toLocaleString()}
-                        </p>
-                      </td>
-                      <td className="p-4">
+                      <td className="p-3">
                         <p className="text-sm" style={{ color: '#050505' }}>
                           {loan.due_date ? new Date(loan.due_date).toLocaleDateString() : '-'}
                         </p>
                       </td>
-                      <td className="p-4">
-                        <p className="text-sm font-medium" style={{ color: loan.late_days > 0 ? '#3E3D39' : '#050505' }}>
+                      <td className="p-3">
+                        <p className="text-sm font-medium" style={{ color: loan.late_days > 0 ? '#EF4444' : '#050505' }}>
                           {loan.late_days || 0}
                         </p>
                       </td>
-                      <td className="p-4">
+                      <td className="p-3">
                         <span 
                           className="px-2 py-1 rounded-lg text-xs font-medium"
                           style={{ backgroundColor: getStatusColor(loan), color: '#D4C8B5' }}
@@ -382,28 +395,28 @@ export default function LoanMonitoringPage() {
                           {getStatusLabel(loan)}
                         </span>
                       </td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="p-3">
+                        <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() => handleSendReminder(loan.id)}
                             disabled={sendingReminder === loan.id}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80"
+                            className="p-1.5 rounded-lg transition-colors hover:opacity-80"
                             style={{ backgroundColor: '#CABAA1', color: '#050505' }}
                             title="Send Reminder"
                           >
                             {sendingReminder === loan.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              <Send className="w-4 h-4" />
+                              <Send className="w-3.5 h-3.5" />
                             )}
                           </button>
                           <button
                             onClick={() => setSelectedLoan(loan)}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80"
+                            className="p-1.5 rounded-lg transition-colors hover:opacity-80"
                             style={{ backgroundColor: '#CABAA1', color: '#050505' }}
                             title="View Details"
                           >
-                            <Eye className="w-4 h-4" />
+                            <Eye className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -543,7 +556,7 @@ export default function LoanMonitoringPage() {
                         <span className="text-xs font-medium" style={{ color: '#6D7464' }}>Outstanding</span>
                       </div>
                       <p className="text-lg font-bold" style={{ color: '#050505' }}>
-                        KSh {selectedLoan.outstanding_balance?.toLocaleString()}
+                        KSh {selectedLoan.current_outstanding?.toLocaleString()}
                       </p>
                     </div>
                     <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>

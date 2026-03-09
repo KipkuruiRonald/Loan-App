@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -31,17 +31,9 @@ import {
   validateTermsAccepted 
 } from '@/lib/validation';
 import { maskPhoneNumber } from '@/lib/utils';
+import { useLoanParameters, calculateTotalRepayment, calculateDueDate } from '@/hooks/useLoanParameters';
 
-const loanOptions = [
-  { amount: 500, term: '9 days', interest: '4.9%', totalDue: 'KSh 525', eligible: true },
-  { amount: 1000, term: '9 days', interest: '4.9%', totalDue: 'KSh 1,049', eligible: true },
-  { amount: 1500, term: '9 days', interest: '4.9%', totalDue: 'KSh 1,574', eligible: false },
-  { amount: 2000, term: '9 days', interest: '4.9%', totalDue: 'KSh 2,098', eligible: false },
-  { amount: 3000, term: '15 days', interest: '5.9%', totalDue: 'KSh 3,177', eligible: false },
-  { amount: 5000, term: '15 days', interest: '5.9%', totalDue: 'KSh 5,295', eligible: false },
-  { amount: 10000, term: '30 days', interest: '6.9%', totalDue: 'KSh 10,690', eligible: false },
-  { amount: 15000, term: '30 days', interest: '6.9%', totalDue: 'KSh 16,035', eligible: false },
-];
+// Dynamic loan options will be generated inside the component using useLoanParameters hook
 
 const purposes = [
   'Business Expansion',
@@ -72,7 +64,14 @@ function ApplyPageContent() {
     }
   }, [isAuthenticated, user, router]);
 
-  const [selectedLoan, setSelectedLoan] = useState<typeof loanOptions[0] | null>(null);
+  const [selectedLoan, setSelectedLoan] = useState<{
+    amount: number;
+    term: string;
+    interest: string;
+    totalDue: string;
+    eligible: boolean;
+    dueDate?: Date;
+  } | null>(null);
   const [selectedPurpose, setSelectedPurpose] = useState('');
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,25 +80,54 @@ function ApplyPageContent() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   
-  // Auto-populated user data from profile (Full Name and Phone from registration)
-  const [userProfileData, setUserProfileData] = useState({
-    fullName: '',
-    phone: ''
-  });
+  // Fetch dynamic loan parameters from database
+  const loanParams = useLoanParameters();
+  const { loading: paramsLoading } = loanParams;
+  const params = loanParams;
+
+  // Generate dynamic loan options based on parameters
+  const loanOptions = useMemo(() => {
+    if (!params || !user) return [];
+    
+    // Base loan amounts to consider
+    const baseAmounts = [500, 1000, 1500, 2000, 3000, 5000, 10000, 15000];
+    
+    // Get user's credit limit - only use params max as fallback if user limit is not set
+    const userMaxLimit = ((user.current_limit ?? 0) > 0 ? user.current_limit : params.max_loan_amount) ?? params.max_loan_amount;
+    
+    return baseAmounts.map(amount => {
+      // Check if amount is within allowed range (both database params AND user's credit limit)
+      const eligible = amount >= params.min_loan_amount && 
+                       amount <= params.max_loan_amount && 
+                       amount <= (userMaxLimit ?? 0);
+      
+      // Calculate total repayment using current parameters
+      const { total } = calculateTotalRepayment(amount, params.default_interest_rate);
+      const dueDate = calculateDueDate(params.term_days);
+      
+      return {
+        amount,
+        term: `${params.term_days} days`,
+        interest: `${params.default_interest_rate}%`,
+        totalDue: `KSh ${Math.round(total).toLocaleString()}`,
+        eligible,
+        dueDate
+      };
+    }).filter(option => option.eligible); // Only show eligible options
+  }, [params, user]);
+  
+  // Loading state for profile data
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
 
-  // Fetch user profile data on mount
+  // Populate form data from user profile on mount
   useEffect(() => {
     if (user) {
-      setUserProfileData({
-        fullName: user.full_name || '',
-        phone: user.phone || ''
-      });
-      // Also pre-fill the form data
+      // Auto-populate form fields with user profile data
       setFormData(prev => ({
         ...prev,
-        fullName: user.full_name || prev.fullName,
-        phoneNumber: user.phone || prev.phoneNumber
+        fullName: user.full_name || '',
+        mpesaNumber: user.phone || '',
+        idNumber: (user as any).id_number || (user as any).national_id || ''
       }));
       setIsLoadingProfile(false);
     } else {
@@ -140,7 +168,6 @@ function ApplyPageContent() {
   const [formData, setFormData] = useState({
     fullName: '',
     idNumber: '',
-    phoneNumber: '',
     mpesaNumber: '',
     employmentStatus: '',
     monthlyIncome: '',
@@ -185,14 +212,8 @@ function ApplyPageContent() {
     const idError = validateIdNumber(formData.idNumber);
     if (idError) errors.idNumber = idError;
     
-    const phoneError = validatePhoneNumber(formData.phoneNumber);
-    if (phoneError) errors.phoneNumber = phoneError;
-    
-    if (!formData.mpesaNumber || formData.mpesaNumber.trim() === '') {
-      errors.mpesaNumber = 'M-Pesa number is required';
-    } else if (!/^(?:\+254|0)[17]\d{8}$/.test(formData.mpesaNumber.replace(/\s/g, ''))) {
-      errors.mpesaNumber = 'Please enter a valid M-Pesa number';
-    }
+    const phoneError = validatePhoneNumber(formData.mpesaNumber);
+    if (phoneError) errors.mpesaNumber = phoneError;
     
     if (!formData.employmentStatus) {
       errors.employmentStatus = 'Employment status is required';
@@ -221,13 +242,14 @@ function ApplyPageContent() {
     
     try {
       // Prepare loan application data for the new /apply endpoint
+      // Use formData values (editable inputs)
       const loanApplicationData = {
         amount: selectedLoan?.amount,
         term_days: selectedLoan?.term ? parseInt(selectedLoan.term.split(' ')[0]) : 9,
         purpose: selectedPurpose,
         full_name: formData.fullName,
         national_id: formData.idNumber,
-        phone_number: formData.phoneNumber,
+        phone_number: formData.mpesaNumber,
         mpesa_number: formData.mpesaNumber,
         employment_status: formData.employmentStatus,
         monthly_income: parseFloat(formData.monthlyIncome),
@@ -290,20 +312,15 @@ function ApplyPageContent() {
         errors.amount = 'Please select a loan amount in Step 1';
       }
       
+      // Validate editable fields
       const nameError = validateFullName(formData.fullName);
       if (nameError) errors.fullName = nameError;
       
       const idError = validateIdNumber(formData.idNumber);
       if (idError) errors.idNumber = idError;
       
-      const phoneError = validatePhoneNumber(formData.phoneNumber);
-      if (phoneError) errors.phoneNumber = phoneError;
-      
-      if (!formData.mpesaNumber || formData.mpesaNumber.trim() === '') {
-        errors.mpesaNumber = 'M-Pesa number is required';
-      } else if (!/^(?:\+254|0)[17]\d{8}$/.test(formData.mpesaNumber.replace(/\s/g, ''))) {
-        errors.mpesaNumber = 'Please enter a valid M-Pesa number';
-      }
+      const phoneError = validatePhoneNumber(formData.mpesaNumber);
+      if (phoneError) errors.mpesaNumber = phoneError;
       
       if (!formData.employmentStatus) {
         errors.employmentStatus = 'Employment status is required';
@@ -332,6 +349,15 @@ function ApplyPageContent() {
       handleSubmit();
     }
   };
+
+  // Show loading while fetching parameters
+  if (paramsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   if (isApproved) {
   return (
@@ -379,13 +405,13 @@ function ApplyPageContent() {
               <div className="flex justify-between items-center py-3 border-b border-gray-200 dark:border-gray-700">
                 <span className="text-gray-600 dark:text-gray-400">Total Due</span>
                 <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                  {selectedLoan?.totalDue}
+                  {params ? `KSh ${calculateTotalRepayment(selectedLoan?.amount || 0, params.default_interest_rate).total.toLocaleString()}` : selectedLoan?.totalDue}
                 </span>
               </div>
               <div className="flex justify-between items-center py-3 border-b border-gray-200 dark:border-gray-700">
                 <span className="text-gray-600 dark:text-gray-400">Due Date</span>
                 <span className="font-bold text-gray-900 dark:text-white">
-                  {new Date(Date.now() + (selectedLoan?.term.includes('9') ? 9 : selectedLoan?.term.includes('15') ? 15 : 30) * 24 * 60 * 60 * 1000).toLocaleDateString('en-KE')}
+                  {params ? calculateDueDate(params.term_days).toLocaleDateString('en-KE') : new Date(Date.now() + (selectedLoan?.term.includes('9') ? 9 : selectedLoan?.term.includes('15') ? 15 : 30) * 24 * 60 * 60 * 1000).toLocaleDateString('en-KE')}
                 </span>
               </div>
               {/* Phone number for repayment - show after loan approval */}
@@ -393,13 +419,13 @@ function ApplyPageContent() {
                 <div className="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                   <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
                     <CreditCard className="h-4 w-4 inline mr-1" />
-                    Registered Phone for Repayment
+                    M-Pesa Number for Disbursement
                   </p>
                   <p className="text-lg font-mono font-bold text-blue-700 dark:text-blue-300 mt-1">
                     {maskPhoneNumber(submittedLoan.phone)}
                   </p>
                   <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
-                    Use this phone number when making repayments
+                    Funds will be sent to this number
                   </p>
                 </div>
               )}
@@ -467,8 +493,8 @@ function ApplyPageContent() {
         </div>
       )}
 
-      {/* Main form content - only show if KYC is verified or still checking */}
-      {!isCheckingKyc && kycStatus === 'VERIFIED' && (
+      {/* Main form content - only show if KYC is verified */}
+      {!isCheckingKyc && kycStatus === 'VERIFIED' && !isLoadingProfile && (
         <>
       {/* Header */}
       <motion.div
@@ -622,9 +648,9 @@ function ApplyPageContent() {
               <div className="flex items-start gap-3">
                 <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                 <div>
-                  <h4 className="font-semibold text-blue-900 dark:text-blue-100">Tier 2 Borrower</h4>
+                  <h4 className="font-semibold text-blue-900 dark:text-blue-100">Tier {user?.credit_tier || 1} Borrower</h4>
                   <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                    Your current credit tier allows loans up to KSh 1,000. Make on-time repayments to unlock higher limits!
+                    Your current credit tier allows loans up to KSh {(user?.current_limit || 1000).toLocaleString()}. Make on-time repayments to unlock higher limits!
                   </p>
                 </div>
               </div>
@@ -673,40 +699,31 @@ function ApplyPageContent() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Full Name - Auto-populated from user profile (read-only) */}
+                {/* Full Name - Editable input pre-filled from profile */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     Full Name (as per ID)
                   </label>
-                  {isLoadingProfile ? (
-                    <div className="w-full px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 animate-pulse">
-                      <div className="h-5 bg-gray-300 dark:bg-gray-600 rounded w-1/3"></div>
-                    </div>
-                  ) : (
-                    <>
-                      <input
-                        type="text"
-                        name="fullName"
-                        value={userProfileData.fullName || formData.fullName}
-                        onChange={handleInputChange}
-                        placeholder="Enter your full name"
-                        required
-                        disabled
-                        className="w-full px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-                      />
-                      {!userProfileData.fullName && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          ⚠️ Please update your name in settings before applying
-                        </p>
-                      )}
-                    </>
-                  )}
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={formData.fullName}
+                    onChange={handleInputChange}
+                    placeholder="Enter your full name"
+                    required
+                    className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
+                      fieldErrors.fullName ? 'border-red-500' : 'border-gray-200 dark:border-gray-600'
+                    }`}
+                  />
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    ✓ Pre-filled from your registration data
+                  </p>
                   {fieldErrors.fullName && (
                     <p className="text-xs text-red-500">{fieldErrors.fullName}</p>
                   )}
                 </div>
 
-                {/* ID Number */}
+                {/* ID Number - Pre-filled from profile */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     National ID Number
@@ -722,48 +739,20 @@ function ApplyPageContent() {
                       fieldErrors.idNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-600'
                     }`}
                   />
+                  {formData.idNumber && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                      ✓ Pre-filled from your profile
+                    </p>
+                  )}
                   {fieldErrors.idNumber && (
                     <p className="text-xs text-red-500">{fieldErrors.idNumber}</p>
                   )}
                 </div>
 
-                {/* Phone Number - Auto-populated from user profile (read-only) */}
-                <div className="space-y-2">
+                {/* M-Pesa Phone Number - Editable input pre-filled from profile */}
+                <div className="space-y-2 md:col-span-2">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Phone Number
-                  </label>
-                  {isLoadingProfile ? (
-                    <div className="w-full px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 animate-pulse">
-                      <div className="h-5 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
-                    </div>
-                  ) : (
-                    <>
-                      <input
-                        type="tel"
-                        name="phoneNumber"
-                        value={userProfileData.phone || formData.phoneNumber}
-                        onChange={handleInputChange}
-                        placeholder="07XX XXX XXX"
-                        required
-                        disabled
-                        className="w-full px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
-                      />
-                      {!userProfileData.phone && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          ⚠️ Please update your phone number in settings before applying
-                        </p>
-                      )}
-                    </>
-                  )}
-                  {fieldErrors.phoneNumber && (
-                    <p className="text-xs text-red-500">{fieldErrors.phoneNumber}</p>
-                  )}
-                </div>
-
-                {/* M-Pesa Number */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    M-Pesa Number (for disbursement)
+                    M-Pesa Phone Number (for disbursement)
                   </label>
                   <input
                     type="tel"
@@ -772,10 +761,13 @@ function ApplyPageContent() {
                     onChange={handleInputChange}
                     placeholder="07XX XXX XXX"
                     required
-                    className={`w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-700 border text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-700 border text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
                       fieldErrors.mpesaNumber ? 'border-red-500' : 'border-gray-200 dark:border-gray-600'
                     }`}
                   />
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    ✓ This phone will be used for loan disbursement and repayments
+                  </p>
                   {fieldErrors.mpesaNumber && (
                     <p className="text-xs text-red-500">{fieldErrors.mpesaNumber}</p>
                   )}
@@ -937,22 +929,18 @@ function ApplyPageContent() {
               <div className="space-y-4">
                 <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
                   <span className="text-gray-600 dark:text-gray-400">Full Name</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{formData.fullName}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{formData.fullName || '-'}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
                   <span className="text-gray-600 dark:text-gray-400">ID Number</span>
                   <span className="font-medium text-gray-900 dark:text-white">{formData.idNumber}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-gray-600 dark:text-gray-400">Phone</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{formData.phoneNumber}</span>
+                  <span className="text-gray-600 dark:text-gray-400">Phone (M-Pesa)</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{formData.mpesaNumber ? maskPhoneNumber(formData.mpesaNumber) : '-'}</span>
                 </div>
               </div>
               <div className="space-y-4">
-                <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-gray-600 dark:text-gray-400">M-Pesa</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{formData.mpesaNumber}</span>
-                </div>
                 <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-700">
                   <span className="text-gray-600 dark:text-gray-400">Employment</span>
                   <span className="font-medium text-gray-900 dark:text-white capitalize">{formData.employmentStatus}</span>

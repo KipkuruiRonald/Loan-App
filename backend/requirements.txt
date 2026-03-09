@@ -21,6 +21,9 @@ joblib==1.3.2
 # HTTP Client
 httpx==0.26.0
 
+# SMS
+twilio==9.0.0
+
 # Utilities
 email-validator==2.1.0
 fpdf==1.7.2

@@ -52,9 +52,9 @@ const contactMethods = [
   {
     icon: <Mail className="h-6 w-6" />,
     title: 'Email',
-    value: 'support@okoleo.co.ke',
+    value: 'support@okolea.co.ke',
     description: 'We reply within 24 hours',
-    link: 'mailto:support@okoleo.co.ke'
+    link: 'mailto:support@okolea.co.ke'
   },
   {
     icon: <MapPin className="h-6 w-6" />,

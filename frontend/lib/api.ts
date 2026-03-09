@@ -1,6 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
+import { API_URL } from './config'
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -24,6 +23,9 @@ api.interceptors.request.use(
   }
 )
 
+// Flag to prevent multiple redirects
+let isRedirecting = false;
+
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
@@ -31,12 +33,27 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       // Unauthorized - clear all auth data and redirect to login
       localStorage.removeItem('access_token')
-      localStorage.removeItem('okoleo_auth')
+      localStorage.removeItem('okolea_auth')
       sessionStorage.clear()
       if (typeof window !== 'undefined') {
         window.location.href = '/login'
       }
     }
+    
+    if (error.response?.status === 503 && !isRedirecting) {
+      // Maintenance mode - force redirect immediately
+      console.log('Maintenance mode detected, redirecting...')
+      if (typeof window !== 'undefined') {
+        // Check if not already on maintenance page
+        if (!window.location.pathname.includes('/maintenance')) {
+          isRedirecting = true
+          window.location.replace('/maintenance') // Use replace instead of href
+          // Reset after 2 seconds in case redirect fails
+          setTimeout(() => { isRedirecting = false }, 2000)
+        }
+      }
+    }
+    
     return Promise.reject(error)
   }
 )
@@ -76,6 +93,22 @@ export const authApi = {
       // Even if server call fails, logout locally
       return { success: true }
     }
+  },
+  
+  // Email verification
+  verifyEmail: async (token: string) => {
+    const response = await api.get('/api/auth/verify-email', { params: { token } })
+    return response.data
+  },
+  
+  resendVerification: async (email: string) => {
+    const response = await api.post('/api/auth/resend-verification', { email })
+    return response.data
+  },
+  
+  checkEmail: async (email: string) => {
+    const response = await api.get('/api/auth/check-email', { params: { email } })
+    return response.data
   },
 }
 
@@ -465,6 +498,51 @@ export const settingsApi = {
   
   getSettingCategories: async () => {
     const response = await api.get('/api/settings/system/categories')
+    return response.data
+  },
+  
+  // Public Loan Parameters (no auth required)
+  getLoanParameters: async () => {
+    const response = await api.get('/api/settings/loan-parameters')
+    return response.data
+  },
+  
+  // Update Loan Parameters (admin only)
+  updateLoanParameters: async (params: any) => {
+    const response = await api.put('/api/settings/loan-parameters', params)
+    return response.data
+  },
+}
+
+// Balance API - for real money validation
+export const balanceApi = {
+  // Get M-Pesa balance for a phone number
+  getMpesaBalance: async (phone: string) => {
+    const response = await api.get('/api/balance/mpesa', { params: { phone } })
+    return response.data
+  },
+  
+  // Get company disbursement balance (admin only)
+  getCompanyBalance: async () => {
+    const response = await api.get('/api/balance/company/disbursement')
+    return response.data
+  },
+  
+  // Get user's all accounts
+  getUserAccounts: async () => {
+    const response = await api.get('/api/balance/accounts')
+    return response.data
+  },
+  
+  // Top up M-Pesa balance (for testing)
+  topUpMpesa: async (phoneNumber: string, amount: number) => {
+    const response = await api.post('/api/balance/mpesa/topup', { phone_number: phoneNumber, amount })
+    return response.data
+  },
+  
+  // Set M-Pesa balance directly (for testing)
+  setMpesaBalance: async (phoneNumber: string, amount: number) => {
+    const response = await api.post('/api/balance/mpesa/set-balance', { phone_number: phoneNumber, amount })
     return response.data
   },
 }

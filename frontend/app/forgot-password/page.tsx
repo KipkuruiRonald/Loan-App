@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, Phone, ArrowRight, Loader2, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import GlassCard from '@/components/GlassCard';
 import { validateRequired, isValidEmail, validatePhoneNumber } from '@/lib/validation';
 
@@ -115,9 +116,14 @@ export default function ForgotPasswordPage() {
           className="text-center mb-8"
         >
           <Link href="/" className="inline-block">
-            <h1 className="text-4xl font-bold" style={{ color: 'var(--accent-primary)' }}>
-              Okoleo
-            </h1>
+            <Image
+              src="/logo.png"
+              alt="Okolea"
+              width={60}
+              height={60}
+              className="rounded-xl"
+              priority
+            />
           </Link>
           <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
             Password Recovery
@@ -292,8 +298,8 @@ export default function ForgotPasswordPage() {
           style={{ color: 'var(--text-secondary)' }}
         >
           Need help? Contact us at{' '}
-          <a href="mailto:support@okoleo.co.ke" className="underline">
-            support@okoleo.co.ke
+          <a href="mailto:support@okolea.co.ke" className="underline">
+            support@okolea.co.ke
           </a>
         </motion.p>
       </motion.div>

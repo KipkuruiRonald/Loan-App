@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, User, Mail, Lock, Phone, ArrowRight, Loader2, Check } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import GlassCard from '@/components/GlassCard';
 import { authApi } from '@/lib/api';
@@ -228,9 +229,14 @@ export default function RegisterPage() {
           className="text-center mb-8"
         >
           <Link href="/" className="inline-block">
-            <h1 className="text-4xl font-bold" style={{ color: 'var(--accent-primary)' }}>
-              Okoleo
-            </h1>
+            <Image
+              src="/logo.png"
+              alt="Okolea"
+              width={60}
+              height={60}
+              className="rounded-xl"
+              priority
+            />
           </Link>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             Create your account
@@ -263,7 +269,7 @@ export default function RegisterPage() {
                   value={formData.full_name}
                   onChange={handleChange}
                   required
-                  placeholder="Okoleo User"
+                  placeholder="Okolea User"
                   className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-400/20 outline-none transition-all duration-300 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                 />
               </div>
@@ -282,7 +288,7 @@ export default function RegisterPage() {
                   value={formData.email}
                   onChange={handleChange}
                   required
-                  placeholder="okoleo@example.com"
+                  placeholder="okolea@example.com"
                   className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-400/20 outline-none transition-all duration-300 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                 />
               </div>
@@ -302,7 +308,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   required
                   minLength={3}
-                  placeholder="okoleouser"
+                  placeholder="okoleauser"
                   className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-blue-400/20 outline-none transition-all duration-300 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                 />
               </div>

@@ -1,10 +1,13 @@
-/* Okoleo Earth-Tone Theme - Integrated with Tailwind */
+/* Okolea Earth-Tone Theme - Integrated with Tailwind */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  /* Safe area inset variable for mobile devices (status bar) */
+  --safe-area-inset-top: env(safe-area-inset-top);
+
   /* Primary Colors */
   --cream: #D4C8B5;
   --tan: #C4A995;
@@ -31,6 +34,12 @@
   
   --accent-primary: #6D7464;
   --border-light: #B4A58B;
+  
+  /* Status Colors */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
 
   /* Typography Scale - Desktop (Default) */
   --h1-size: 2rem;      /* 32px - Main page titles */
@@ -268,6 +277,60 @@
   }
 }
 
+/* ============================================
+   SAFE AREA FOR STATUS BAR (Android/iOS)
+   ============================================ */
+
+/* Apply safe area padding to body ONLY on mobile devices */
+@media (max-width: 768px) {
+  body {
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-top: max(24px, constant(safe-area-inset-top));
+  }
+}
+
+/* Desktop - no safe area padding needed */
+@media (min-width: 769px) {
+  body {
+    padding-top: 0;
+  }
+}
+
+/* Base body styles - no padding by default */
+body {
+  min-height: 100vh;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+/* Safe area class for specific elements */
+.safe-area-top {
+  padding-top: max(24px, env(safe-area-inset-top));
+  padding-top: max(24px, constant(safe-area-inset-top));
+}
+
+/* Android-specific safe area (status bar typically 24-30px) */
+.android-safe-top {
+  padding-top: 30px;
+}
+
+/* Ensure main content respects safe area - mobile only */
+@media (max-width: 768px) {
+  html,
+  body > div:first-child,
+  #__next {
+    padding-top: max(24px, env(safe-area-inset-top));
+  }
+}
+
+@media (min-width: 769px) {
+  html,
+  body > div:first-child,
+  #__next {
+    padding-top: 0;
+  }
+}
+
 /* Form fields - 2 columns on landscape mobile */
 @media (orientation: landscape) and (max-height: 500px) {
   .form-grid.two-cols {
@@ -294,13 +357,13 @@
   }
 }
 
-/* Global Styles - Apply Okoleo Colors */
+/* Global Styles - Apply Okolea Colors */
 body {
   background-color: var(--cream) !important;
   color: var(--nearblack) !important;
 }
 
-/* Override Tailwind colors with Okoleo palette */
+/* Override Tailwind colors with Okolea palette */
 .bg-cream { background-color: #D4C8B5; }
 .bg-tan { background-color: #C4A995; }
 .bg-beige { background-color: #D5BFA4; }
@@ -449,4 +512,240 @@ body {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;  /* Chrome, Safari and Opera */
+}
+
+/* ============================================
+   REMOVE DECORATIVE STARS/DOTS
+   ============================================ */
+
+/* Remove all asterisk/decorative elements from headings */
+h1::before, h1::after,
+h2::before, h2::after,
+h3::before, h3::after,
+h4::before, h4::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* Remove decorative elements from paragraphs and divs */
+p::before, p::after,
+div::before, div::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* Remove list markers */
+ul, ol, li {
+  list-style: none !important;
+}
+
+ul::before, ul::after,
+ol::before, ol::after,
+li::before, li::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* Remove stars from welcome messages */
+.welcome-text::before,
+.welcome-text::after,
+.greeting::before,
+.greeting::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* Remove any decorative bullet points */
+[class*="welcome"]::before,
+[class*="welcome"]::after {
+  display: none !important;
+}
+
+/* ============================================
+   REMOVE ALL LIST MARKERS AND DECORATIONS
+   ============================================ */
+
+/* Remove ALL list markers and decorations */
+ul, ol, menu {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+li {
+  list-style-type: none !important;
+}
+
+li::before, li::after, 
+li > *::before, li > *::after {
+  display: none !important;
+  content: "" !important;
+}
+
+/* Target any element that might have bullet points */
+[class*="list"] li,
+[class*="bullet"] li,
+[class*="prose"] li,
+[class*="markdown"] li {
+  list-style: none !important;
+}
+
+/* Remove any background images that might be bullets */
+li {
+  background-image: none !important;
+}
+
+/* Specifically target the quick actions section */
+.quick-actions li,
+[class*="quick"] li,
+section li {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+/* Force remove any pseudo-element content */
+li::marker {
+  display: none !important;
+  content: "" !important;
+  color: transparent !important;
+}
+
+/* For any remaining bullets, hide them */
+* {
+  list-style-position: inside !important;
+}
+
+/* Global override for Tailwind prose */
+.prose ul,
+.prose ol,
+.prose li {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+/* Additional specific overrides */
+.ql-editor ul,
+.ql-editor ol,
+.ql-editor li {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+/* Remove asterisk from required field labels */
+label.required::after,
+.label-required::after,
+.required::after {
+  content: "" !important;
+}
+
+/* Hide any asterisks in forms */
+.form-group label::after,
+.form-label::after {
+  content: none !important;
+}
+
+/* ============================================
+   OVERRIDE TAILWIND LIST CLASSES
+   ============================================ */
+
+/* Force override Tailwind's list-disc, list-decimal, etc. */
+.list-disc,
+.list-decimal,
+.list-square,
+.list-circle,
+.list-none {
+  list-style: none !important;
+  list-style-type: none !important;
+}
+
+/* Override any ul/ol with Tailwind list classes */
+ul[class*="list-"],
+ol[class*="list-"] {
+  list-style: none !important;
+  padding-left: 0 !important;
+}
+
+/* ============================================
+   REMOVE ASTERISKS FROM REQUIRED FIELD LABELS
+   ============================================ */
+
+/* Hide asterisks in all labels */
+label {
+  font-size: inherit;
+}
+
+/* Remove asterisks from label text */
+label:has(> *),
+label:has(> text),
+label:contains('*') {
+  font-size: inherit;
+}
+
+/* Hide asterisks specifically in form labels */
+.form-label::after,
+label::after {
+  content: none !important;
+}
+
+/* Target labels with asterisks - use JavaScript to remove if needed */
+/* CSS-only workaround to hide asterisk character */
+label > span:empty + span:empty,
+label span:empty {
+  display: none;
+}
+
+/* ============================================
+   ADMIN LAYOUT SPACING FIX
+   ============================================ */
+
+/* Remove any default browser spacing */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Force no gap in admin layout - critical override */
+.admin-layout {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+.admin-layout main,
+.admin-layout .admin-main {
+  padding-top: 1rem !important; /* 16px - small gap below fixed header */
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  margin-top: 0 !important;
+}
+
+/* Force remove any potential margins from first child */
+.admin-layout main > *:first-child,
+.admin-layout .admin-main > *:first-child,
+.admin-layout main > div:first-child,
+.admin-layout .admin-main > div:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Override any pt-* or mt-* classes on first child */
+.admin-layout main > *:first-child[class*="mt-"],
+.admin-layout main > *:first-child[class*="pt-"] {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* ============================================
+   HIDE MOBILE NAV ON DESKTOP
+   ============================================ */
+
+/* Force hide mobile navigation on desktop (lg = 1024px) */
+@media (min-width: 1024px) {
+  .lg\:hidden {
+    display: none !important;
+  }
+  
+  /* Also hide any elements with z-40 that might be visible */
+  .fixed.top-16.z-40 {
+    display: none !important;
+  }
 }

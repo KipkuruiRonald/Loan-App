@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Shield, Zap, Users, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
@@ -34,9 +35,16 @@ export default function AuthScreen() {
             className="text-center lg:text-left"
           >
             <div className="flex items-center justify-center lg:justify-start gap-2 mb-6">
-              <Sparkles className="w-8 h-8" style={{ color: '#3E3D39' }} />
+              <Image
+                src="/logo.png"
+                alt="Okolea"
+                width={50}
+                height={50}
+                className="rounded-lg"
+                priority
+              />
               <h1 className="text-4xl font-bold" style={{ color: '#050505' }}>
-                Okoleo
+                Okolea
               </h1>
             </div>
             

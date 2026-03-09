@@ -1,10 +1,10 @@
-# Okoleo - Quick Loans for Kenya
+# Okolea - Quick Loans for Kenya
 
 A fast, transparent consumer lending platform built with Next.js and FastAPI.
 
 ## Overview
 
-Okoleo is a loan management application designed for the Kenyan market, allowing users to apply for short-term loans, track their credit profile, and manage repayments. The platform features a tier-based credit system that rewards timely repayments with increased loan limits.
+Okolea is a loan management application designed for the Kenyan market, allowing users to apply for short-term loans, track their credit profile, and manage repayments. The platform features a tier-based credit system that rewards timely repayments with increased loan limits.
 
 ## Features
 
@@ -167,7 +167,7 @@ Each tier upgrade increases the user's maximum loan limit.
 
 ### Backend (.env)
 ```
-DATABASE_URL=sqlite:///./okoleo.db
+DATABASE_URL=sqlite:///./okolea.db
 SECRET_KEY=your-secret-key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30

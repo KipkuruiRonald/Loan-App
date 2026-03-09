@@ -199,26 +199,43 @@ export default function AdminDashboard() {
   const handleApprove = async (loanId: number) => {
     try {
       const token = localStorage.getItem('access_token');
-      await fetch(`http://localhost:8000/api/admin/loans/${loanId}/approve`, {
+      const res = await fetch(`http://localhost:8000/api/admin/loans/${loanId}/approve`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       });
+      
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Loan approved! KSh ${data.amount?.toLocaleString() || '0'} disbursed to ${data.phone_number}`);
+      } else {
+        const errorData = await res.json();
+        alert(errorData.detail || 'Failed to approve loan');
+      }
       fetchData();
     } catch (err) {
       console.error('Failed to approve loan:', err);
+      alert('Failed to approve loan');
     }
   };
 
   const handleReject = async (loanId: number) => {
     try {
       const token = localStorage.getItem('access_token');
-      await fetch(`http://localhost:8000/api/admin/loans/${loanId}/reject`, {
+      const res = await fetch(`http://localhost:8000/api/admin/loans/${loanId}/reject`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       });
+      
+      if (res.ok) {
+        alert('Loan rejected. No payment was sent.');
+      } else {
+        const errorData = await res.json();
+        alert(errorData.detail || 'Failed to reject loan');
+      }
       fetchData();
     } catch (err) {
       console.error('Failed to reject loan:', err);
+      alert('Failed to reject loan');
     }
   };
 
@@ -252,9 +269,9 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout>
-      <div className="space-y-8">
+      <div className="space-y-5">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-0">
           <div>
             <h1 className="text-2xl font-bold" style={{ color: '#050505' }}>
               Admin Dashboard
@@ -275,7 +292,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {statsCards.map((stat, index) => (
             <motion.div
               key={stat.title}
@@ -322,7 +339,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Pending Approvals */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -459,10 +476,10 @@ export default function AdminDashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.6 }}
-          className="rounded-2xl p-6"
+          className="rounded-2xl p-4 mt-2"
           style={{ backgroundColor: '#D5BFA4', border: '1px solid #B4A58B' }}
         >
-          <h2 className="text-lg font-bold mb-4" style={{ color: '#050505' }}>
+          <h2 className="text-lg font-bold mb-3" style={{ color: '#050505' }}>
             Quick Actions
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -488,7 +505,7 @@ export default function AdminDashboard() {
         </motion.div>
 
         {/* Quick Stats Links */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-2">
           {[
             { label: 'Users', value: stats?.total_users || 0, href: '/admin/users', icon: Users },
             { label: 'Loans', value: stats?.active_loans || 0, href: '/admin/loans', icon: FileText },

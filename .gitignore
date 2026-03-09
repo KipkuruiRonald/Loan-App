@@ -49,11 +49,6 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
-# Rust/NEAR
-blockchain/near/target/
-blockchain/near/Cargo.lock
-*.wasm
-
 # Logs
 logs/
 *.log
@@ -67,3 +62,8 @@ logs/
 tmp/
 temp/
 *.tmp
+
+# Android build
+android/app/build/
+android/build/
+android/.gradle/

@@ -24,6 +24,18 @@ interface AnalyticsData {
   default_rate: number;
   portfolio_value: number;
   disbursed_today: number;
+  total_disbursed: number;
+  total_repaid: number;
+  outstanding: number;
+  recent_loans: Array<{
+    date: string;
+    count: number;
+    total: number;
+  }>;
+  status_breakdown: Array<{
+    status: string;
+    count: number;
+  }>;
 }
 
 interface LoanData {
@@ -93,6 +105,11 @@ export default function AnalyticsPage() {
     fetchData();
   };
 
+  // Format currency helper - always show exact amount
+  const formatCurrency = (amount: number) => {
+    return `KSh ${amount.toLocaleString()}`;
+  };
+
   const handleExport = () => {
     const analytics = calculateAnalytics();
     const data = {
@@ -122,25 +139,46 @@ export default function AnalyticsPage() {
     const defaultedLoans = loans.filter(l => l.status === 'DEFAULTED');
     const pendingLoans = loans.filter(l => l.status === 'PENDING');
 
-    // Total disbursed
-    const totalDisbursed = loans.reduce((sum, l) => sum + (l.principal || 0), 0);
+    // Total disbursed from stats (more accurate)
+    const totalDisbursed = stats?.total_disbursed || loans.reduce((sum, l) => sum + (l.principal || 0), 0);
 
-    // Outstanding amount
-    const totalOutstanding = loans.reduce((sum, l) => sum + (l.current_outstanding || 0), 0);
+    // Outstanding amount from stats (more accurate)
+    const totalOutstanding = stats?.outstanding || loans.reduce((sum, l) => sum + (l.current_outstanding || 0), 0);
 
     // Average loan size
     const avgLoanSize = loans.length > 0 ? totalDisbursed / loans.length : 0;
 
-    // Loan status distribution
-    const statusDistribution = [
+    // Loan status distribution from stats
+    const statusDistribution = stats?.status_breakdown?.map(item => {
+      let label = item.status || 'Unknown';
+      let color = '#6D7464';
+      switch (item.status) {
+        case 'ACTIVE':
+          label = 'Active';
+          color = '#6D7464';
+          break;
+        case 'SETTLED':
+          label = 'Completed';
+          color = '#C4A995';
+          break;
+        case 'PENDING':
+          label = 'Pending';
+          color = '#CABAA1';
+          break;
+        case 'DEFAULTED':
+          label = 'Defaulted';
+          color = '#3E3D39';
+          break;
+      }
+      return { label, value: item.count, color };
+    }) || [
       { label: 'Active', value: activeLoans.length, color: '#6D7464' },
       { label: 'Completed', value: completedLoans.length, color: '#C4A995' },
       { label: 'Pending', value: pendingLoans.length, color: '#CABAA1' },
       { label: 'Defaulted', value: defaultedLoans.length, color: '#3E3D39' },
     ];
 
-    // Daily disbursement trend for last 7 days
-    // Generate last 7 days dates
+    // Daily disbursement trend for last 7 days from stats
     const today = new Date();
     const last7Days: Date[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -149,7 +187,7 @@ export default function AnalyticsPage() {
       last7Days.push(date);
     }
 
-    // Create a map of daily amounts
+    // Create a map of daily amounts from stats
     const dailyData: { [key: string]: number } = {};
     
     // Initialize all days with 0
@@ -158,16 +196,29 @@ export default function AnalyticsPage() {
       dailyData[dayKey] = 0;
     });
     
-    // Sum up loans by day
-    loans.forEach(loan => {
-      if (loan.created_at) {
-        const loanDate = new Date(loan.created_at);
-        const dayKey = loanDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyData[dayKey] !== undefined) {
-          dailyData[dayKey] = (dailyData[dayKey] || 0) + loan.principal;
+    // Use stats recent_loans if available, otherwise fall back to loans
+    if (stats?.recent_loans && stats.recent_loans.length > 0) {
+      stats.recent_loans.forEach((loan: any) => {
+        if (loan.date) {
+          const loanDate = new Date(loan.date);
+          const dayKey = loanDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (dailyData[dayKey] !== undefined) {
+            dailyData[dayKey] = (dailyData[dayKey] || 0) + loan.total;
+          }
         }
-      }
-    });
+      });
+    } else {
+      // Fall back to loans data
+      loans.forEach(loan => {
+        if (loan.created_at) {
+          const loanDate = new Date(loan.created_at);
+          const dayKey = loanDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (dailyData[dayKey] !== undefined) {
+            dailyData[dayKey] = (dailyData[dayKey] || 0) + loan.principal;
+          }
+        }
+      });
+    }
 
     // Convert to array format for chart
     const dailyTrend = Object.entries(dailyData)
@@ -198,6 +249,8 @@ export default function AnalyticsPage() {
       unverifiedUsers,
       totalUsers: users.length,
       totalLoans: loans.length,
+      defaultRate: stats?.default_rate || 0,
+      portfolioValue: stats?.portfolio_value || 0,
     };
   };
 
@@ -252,21 +305,21 @@ export default function AnalyticsPage() {
           {[
             { 
               title: 'Total Disbursed', 
-              value: `KSh ${((analytics?.totalDisbursed || 0) / 1000000).toFixed(2)}M`,
+              value: formatCurrency(analytics?.totalDisbursed || 0),
               subtitle: 'All time',
               icon: DollarSign,
               color: '#3E3D39'
             },
             { 
               title: 'Outstanding', 
-              value: `KSh ${((analytics?.totalOutstanding || 0) / 1000000).toFixed(2)}M`,
-              subtitle: 'Active loans',
+              value: formatCurrency(analytics?.totalOutstanding || 0),
+              subtitle: `${stats?.active_loans || 0} Active loans`,
               icon: TrendingUp,
               color: '#3E3D39'
             },
             { 
               title: 'Avg Loan Size', 
-              value: `KSh ${(analytics?.avgLoanSize || 0).toLocaleString()}`,
+              value: formatCurrency(analytics?.avgLoanSize || 0),
               subtitle: 'Per borrower',
               icon: FileText,
               color: '#3E3D39'

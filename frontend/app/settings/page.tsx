@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  User, Bell, Shield, Wallet, Moon, Sun, Mail, Phone, MapPin, Save, 
+  User, Bell, Shield, Wallet, Palette, Mail, Phone, MapPin, Save, 
   Loader2, CheckCircle, CreditCard, Lock, Eye, EyeOff, Globe, AlertCircle, X, Download, Trash2, Clock, XCircle
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
@@ -11,7 +11,6 @@ import AccordionSection from '@/components/AccordionSection';
 import { AuthGuard } from '@/components/AuthGuard';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useTheme } from '../providers';
 import { settingsApi } from '@/lib/api';
 import { validateProfile, validatePasswordChange, ValidationResult } from '@/lib/validation';
 import { getErrorMessage } from '@/lib/utils';
@@ -24,6 +23,22 @@ const maskPhone = (phone: string): string => {
   if (cleaned.length < 4) return cleaned;
   // Show first 4 digits and last 3 digits, mask the middle
   return cleaned.slice(0, 4) + '***' + cleaned.slice(-3);
+};
+
+// Utility function to format phone number for display (2547XXXXXXXX -> 07XX XXX XXX)
+const formatPhoneDisplay = (phone: string): string => {
+  if (!phone) return '';
+  // Remove any non-digit characters
+  const digits = phone.replace(/\D/g, '');
+  // Convert 2547XXXXXXXX to 07XXXXXXXX
+  if (digits.startsWith('254') && digits.length === 12) {
+    return '0' + digits.slice(3);
+  }
+  // If already in 07XXXXXXXX format
+  if (digits.startsWith('0') && digits.length === 10) {
+    return digits;
+  }
+  return phone;
 };
 
 // Utility function to mask National ID
@@ -57,7 +72,6 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { theme, toggleTheme } = useTheme();
   const { logout, refreshUser } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('profile');
@@ -72,6 +86,12 @@ function SettingsContent() {
   const [kycStatus, setKycStatus] = useState<string>('PENDING');
   const [submitting, setSubmitting] = useState(false);
   const [loadingKyc, setLoadingKyc] = useState(true);
+  const [phoneChangeRequest, setPhoneChangeRequest] = useState({
+    newPhone: '',
+    reason: '',
+    submitted: false,
+    loading: false,
+  });
 
   // Determine if fields should be editable based on KYC status
   // Fields are EDITABLE when kyc_status === 'PENDING' or 'REJECTED'
@@ -104,7 +124,6 @@ function SettingsContent() {
     date_of_birth: '',
     location: '',
     address: '',
-    mpesa_phone: '',
     preferred_loan_amount: 500,
     preferred_term_days: 9,
     auto_repay: true,
@@ -245,11 +264,13 @@ function SettingsContent() {
     let validation: ValidationResult = { isValid: true, errors: {} };
     
     if (activeTab === 'profile') {
+      // Exclude phone from validation - it's read-only after registration
+      // Also exclude mpesa_phone since we no longer use it
+      const { phone, mpesa_phone, ...profileDataWithoutPhone } = userData;
       validation = validateProfile({
-        full_name: userData.full_name,
-        email: userData.email,
-        phone: userData.phone,
-        national_id: userData.national_id,
+        full_name: profileDataWithoutPhone.full_name,
+        email: profileDataWithoutPhone.email,
+        national_id: profileDataWithoutPhone.national_id,
       });
     } else if (activeTab === 'security' && showPasswordForm) {
       validation = validatePasswordChange({
@@ -282,7 +303,10 @@ function SettingsContent() {
         setShowPasswordForm(false);
         markAsSaved();
       } else {
-        await settingsApi.updateProfile(userData);
+        // Exclude phone from profile updates - it's locked after registration
+        // Also exclude mpesa_phone since we no longer use it
+        const { phone, mpesa_phone, ...profileDataToSave } = userData;
+        await settingsApi.updateProfile(profileDataToSave);
         await settingsApi.updatePreferences(preferences);
         await settingsApi.updateNotificationPreferences(notifPrefs);
         
@@ -331,7 +355,7 @@ function SettingsContent() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `okoleo-data-${new Date().toISOString().split('T')[0]}.pdf`;
+      a.download = `okolea-data-${new Date().toISOString().split('T')[0]}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -359,14 +383,49 @@ function SettingsContent() {
 
   const handlePrefChange = (field: string, value: any) => {
     setPreferences(prev => ({ ...prev, [field]: value }));
-    // Apply theme change immediately
-    if (field === 'theme' && value !== theme) {
-      toggleTheme();
-    }
   };
 
   const handleNotifChange = (field: string, value: any) => {
     setNotifPrefs(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Handle phone change request
+  const handlePhoneChangeRequest = async () => {
+    if (!phoneChangeRequest.newPhone || !phoneChangeRequest.reason) {
+      setError('Please provide both new phone number and reason');
+      return;
+    }
+
+    setPhoneChangeRequest(prev => ({ ...prev, loading: true }));
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch('http://localhost:8000/api/settings/phone-change-request', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          new_phone: phoneChangeRequest.newPhone,
+          reason: phoneChangeRequest.reason,
+        })
+      });
+
+      if (res.ok) {
+        setPhoneChangeRequest(prev => ({ ...prev, submitted: true, loading: false }));
+        setSuccessMessage('Phone change request submitted successfully! Admin will review your request.');
+      } else {
+        const errorData = await res.json();
+        setError(errorData.detail || 'Failed to submit phone change request');
+        setPhoneChangeRequest(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      console.error('Phone change request error:', err);
+      setError('Failed to submit phone change request. Please try again.');
+      setPhoneChangeRequest(prev => ({ ...prev, loading: false }));
+    }
   };
 
   const tabs = [
@@ -639,19 +698,20 @@ function SettingsContent() {
                             Phone Number
                             <span className="ml-2 text-xs text-nearblack/50">(Verified at registration)</span>
                           </label>
-                          <input
-                            type="tel"
-                            name="phone"
-                            value={isFieldsLocked ? maskPhone(userData.phone || '') : userData.phone}
-                            readOnly={isFieldsLocked}
-                            onChange={(e) => !isFieldsLocked && setUserData({...userData, phone: e.target.value})}
-                            placeholder={isFieldsLocked ? "" : "+2547XXXXXXXX"}
-                            className={`w-full rounded-xl px-4 py-3 outline-none ${
-                              isFieldsLocked 
-                                ? 'bg-tan text-nearblack/60 cursor-not-allowed' 
-                                : 'bg-cream text-nearblack focus:ring-2 focus:ring-blue-500'
-                            }`}
-                          />
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              name="phone"
+                              value={formatPhoneDisplay(userData.phone || '')}
+                              readOnly={true}
+                              placeholder="07XXXXXXXX"
+                              className={`w-full rounded-xl px-4 py-3 pr-10 outline-none bg-gray-100 text-nearblack/60 cursor-not-allowed`}
+                            />
+                            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          </div>
+                          <p className="text-xs text-nearblack/50 mt-1">
+                            Phone number cannot be changed after registration. Contact support to change.
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -673,15 +733,10 @@ function SettingsContent() {
                         <input
                           type="text"
                           name="national_id"
-                          value={isFieldsLocked ? maskNationalId(userData.national_id || '') : userData.national_id}
-                          readOnly={isFieldsLocked}
-                          onChange={(e) => !isFieldsLocked && setUserData({...userData, national_id: e.target.value})}
-                          placeholder={isFieldsLocked ? "" : "1234****"}
-                          className={`w-full rounded-xl px-4 py-3 outline-none font-mono ${
-                            isFieldsLocked 
-                              ? 'bg-tan text-nearblack/60 cursor-not-allowed' 
-                              : 'bg-cream text-nearblack focus:ring-2 focus:ring-blue-500'
-                          }`}
+                          value={userData.national_id || ''}
+                          readOnly={true}
+                          placeholder="12345678"
+                          className={`w-full rounded-xl px-4 py-3 outline-none font-mono bg-gray-100 text-nearblack/60 cursor-not-allowed`}
                         />
                       </div>
 
@@ -1103,22 +1158,27 @@ function SettingsContent() {
                             <p className="text-sm text-nearblack/60">Mobile Money Payments</p>
                           </div>
                         </div>
-                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-olivegray/20 text-olivegray">
+                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
                           Connected
                         </span>
                       </div>
                       
-                      <div>
-                        <label className="block text-sm font-medium text-nearblack dark:text-cream mb-2">
-                          M-Pesa Phone Number
-                        </label>
-                        <input
-                          type="tel"
-                          value={userData.mpesa_phone || ''}
-                          onChange={(e) => handleInputChange('mpesa_phone', e.target.value)}
-                          placeholder="+254712345678"
-                          className="w-full rounded-xl bg-beige px-4 py-3 text-nearblack placeholder-nearblack/40 outline-none border border-warmgray focus:border-darkgray"
-                        />
+                      <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center gap-3 mb-3">
+                          <Lock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          <span className="font-medium text-blue-800 dark:text-blue-200">Registered Phone Number</span>
+                          {kycStatus === 'VERIFIED' && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                              Verified
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-blue-700 dark:text-blue-300 mb-2 font-mono">
+                          {formatPhoneDisplay(userData.phone || '') || 'No phone registered'}
+                        </p>
+                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                          Phone number verified during registration. Contact support to change.
+                        </p>
                       </div>
                     </div>
                   </AccordionSection>
@@ -1195,44 +1255,13 @@ function SettingsContent() {
                   {/* Appearance Accordion */}
                   <AccordionSection 
                     title="Appearance" 
-                    icon={<Sun className="w-5 h-5" />}
+                    icon={<Palette className="w-5 h-5" />}
                     defaultOpen={true}
                   >
-                    <div className="grid grid-cols-3 gap-4">
-                      <button
-                        onClick={() => handlePrefChange('theme', 'light')}
-                        className={`p-4 rounded-xl border-2 transition-colors ${
-                          preferences.theme === 'light'
-                            ? 'border-darkgray bg-tan'
-                            : 'border-warmgray hover:border-taupe'
-                        }`}
-                      >
-                        <Sun className="w-6 h-6 mx-auto mb-2 text-olivegray" />
-                        <p className="text-sm font-medium text-nearblack dark:text-cream">Light</p>
-                      </button>
-                      <button
-                        onClick={() => handlePrefChange('theme', 'dark')}
-                        className={`p-4 rounded-xl border-2 transition-colors ${
-                          preferences.theme === 'dark'
-                            ? 'border-darkgray bg-tan'
-                            : 'border-warmgray hover:border-taupe'
-                        }`}
-                      >
-                        <Moon className="w-6 h-6 mx-auto mb-2 text-sagegray" />
-                        <p className="text-sm font-medium text-nearblack dark:text-cream">Dark</p>
-                      </button>
-                      <button
-                        onClick={() => handlePrefChange('theme', 'system')}
-                        className={`p-4 rounded-xl border-2 transition-colors ${
-                          preferences.theme === 'system'
-                            ? 'border-darkgray bg-tan'
-                            : 'border-warmgray hover:border-taupe'
-                        }`}
-                      >
-                        <Globe className="w-6 h-6 mx-auto mb-2 text-nearblack/60" />
-                        <p className="text-sm font-medium text-nearblack dark:text-cream">System</p>
-                      </button>
-                    </div>
+                    <div className="p-4 rounded-xl border-2 bg-tan" style={{ borderColor: 'var(--border-light)' }}>
+                        <p className="text-sm font-medium text-center" style={{ color: 'var(--text-primary)' }}>Light Theme Only</p>
+                        <p className="text-xs text-center mt-1" style={{ color: 'var(--text-secondary)' }}>Dark mode is not available</p>
+                      </div>
                   </AccordionSection>
 
                   {/* Language Accordion */}
@@ -1287,6 +1316,78 @@ function SettingsContent() {
                 </div>
 
                 <div className="space-y-4">
+                  {/* Phone Change Request Accordion */}
+                  <AccordionSection 
+                    title="Request Phone Change" 
+                    icon={<Phone className="w-5 h-5" />}
+                    defaultOpen={false}
+                  >
+                    <div className="space-y-4">
+                      {phoneChangeRequest.submitted ? (
+                        <div className="p-4 bg-green-50 rounded-xl border border-green-200">
+                          <div className="flex items-center gap-3">
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                            <p className="text-sm text-green-800">
+                              Your phone change request has been submitted and is pending admin review.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+                            <p className="text-sm text-yellow-800 mb-2">
+                              Phone changes require admin approval for security reasons.
+                            </p>
+                            <p className="text-xs text-yellow-700">
+                              Current phone: <strong>{formatPhoneDisplay(userData.phone || '') || 'Not set'}</strong>
+                            </p>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-nearblack dark:text-cream mb-2">
+                              New Phone Number
+                            </label>
+                            <input
+                              type="tel"
+                              value={phoneChangeRequest.newPhone}
+                              onChange={(e) => setPhoneChangeRequest(prev => ({ ...prev, newPhone: e.target.value }))}
+                              placeholder="07XXXXXXXX"
+                              className="w-full rounded-xl bg-cream px-4 py-3 text-nearblack outline-none border border-warmgray focus:border-darkgray"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-nearblack dark:text-cream mb-2">
+                              Reason for Change
+                            </label>
+                            <textarea
+                              value={phoneChangeRequest.reason}
+                              onChange={(e) => setPhoneChangeRequest(prev => ({ ...prev, reason: e.target.value }))}
+                              placeholder="Please explain why you need to change your phone number..."
+                              rows={3}
+                              className="w-full rounded-xl bg-cream px-4 py-3 text-nearblack outline-none border border-warmgray focus:border-darkgray resize-none"
+                            />
+                          </div>
+                          
+                          <button
+                            onClick={handlePhoneChangeRequest}
+                            disabled={phoneChangeRequest.loading || !phoneChangeRequest.newPhone || !phoneChangeRequest.reason}
+                            className="px-4 py-2 bg-darkgray text-cream rounded-lg hover:bg-nearblack disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            {phoneChangeRequest.loading ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Submitting...
+                              </>
+                            ) : (
+                              'Submit Request'
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </AccordionSection>
+
                   {/* Privacy Options Accordion */}
                   <AccordionSection 
                     title="Privacy Options" 

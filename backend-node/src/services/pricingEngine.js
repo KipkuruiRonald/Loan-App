@@ -1,9 +1,9 @@
-// Loan Calculator for Okoleo 9-Day Loan Product
+// Loan Calculator for Okolea 9-Day Loan Product
 // Based on Section 1.3 Modified Calculation Formulas
 
 class LoanCalculator {
   constructor() {
-    // Okoleo 9-Day Loan Parameters
+    // Okolea 9-Day Loan Parameters
     this.TERM_DAYS = 9;
     this.ANNUAL_INTEREST_RATE = 0.04; // 4%
     this.PENALTY_RATE = 0.068; // 6.8% of principal
@@ -12,7 +12,7 @@ class LoanCalculator {
   }
   
   /**
-   * Calculate total amount due for a 9-day loan using Okoleo rate logic.
+   * Calculate total amount due for a 9-day loan using Okolea rate logic.
    * 
    * Formula:
    * total_due = principal 

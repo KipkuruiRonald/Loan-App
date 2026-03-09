@@ -1,8 +1,21 @@
 'use client'
 
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { useNotifications } from '@/context/NotificationContext'
-import { NotificationPriority } from '@/types'
+import { useRouter } from 'next/navigation'
+import { NotificationPriority, NotificationType } from '@/types'
+import { 
+  FileText, 
+  CreditCard, 
+  Shield, 
+  Settings, 
+  TrendingUp, 
+  Gift, 
+  AlertTriangle, 
+  AlertCircle,
+  Wrench,
+  Megaphone
+} from 'lucide-react'
 
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString)
@@ -34,19 +47,62 @@ function getPriorityColor(priority: NotificationPriority): string {
   }
 }
 
-function getTypeIcon(type: string): string {
-  // Borrower notifications only
-  if (type.includes('LOAN_APPROVED')) return '✅'
-  if (type.includes('LOAN_DECLINED')) return '❌'
-  if (type.includes('PAYMENT')) return '💰'
-  if (type.includes('CREDIT_LIMIT')) return '📈'
-  if (type.includes('TIER')) return '⭐'
-  if (type.includes('WELCOME')) return '🎊'
+function getTypeIcon(type: string) {
+  // Loan notifications
+  if (type.includes('LOAN_APPROVED')) return <FileText className="w-5 h-5 text-green-600" />
+  if (type.includes('LOAN_DECLINED')) return <AlertCircle className="w-5 h-5 text-red-600" />
+  if (type.includes('LOAN_DISBURSED')) return <CreditCard className="w-5 h-5 text-green-600" />
+  if (type.includes('LOAN_REPAID')) return <FileText className="w-5 h-5 text-green-600" />
+  
+  // Payment notifications
+  if (type.includes('PAYMENT')) return <CreditCard className="w-5 h-5 text-blue-600" />
+  if (type.includes('REPAYMENT')) return <CreditCard className="w-5 h-5 text-green-600" />
+  
+  // Account notifications
+  if (type.includes('CREDIT_LIMIT')) return <TrendingUp className="w-5 h-5 text-purple-600" />
+  if (type.includes('TIER')) return <TrendingUp className="w-5 h-5 text-yellow-600" />
+  if (type.includes('WELCOME')) return <Gift className="w-5 h-5 text-pink-600" />
+  if (type.includes('REFERRAL')) return <Gift className="w-5 h-5 text-green-600" />
+  if (type.includes('ACCOUNT_UPDATE')) return <Settings className="w-5 h-5 text-gray-600" />
+  
+  // Security notifications
+  if (type.includes('SECURITY') || type.includes('PASSWORD') || type.includes('DEVICE')) return <Shield className="w-5 h-5 text-red-600" />
+  
+  // System notifications
+  if (type.includes('SYSTEM_MAINTENANCE')) return <Wrench className="w-5 h-5 text-orange-600" />
+  if (type.includes('PROMOTIONAL')) return <Megaphone className="w-5 h-5 text-purple-600" />
+  
   // Default icon
-  return '🔔'
+  return <AlertTriangle className="w-5 h-5 text-gray-600" />
+}
+
+function getNavigationPath(type: string, relatedEntityType?: string, relatedEntityId?: number): string {
+  // Loan-related notifications
+  if (type.includes('LOAN') && relatedEntityType === 'loan' && relatedEntityId) {
+    return `/myloans?id=${relatedEntityId}`
+  }
+  
+  // Payment-related notifications
+  if (type.includes('PAYMENT') || type.includes('REPAYMENT')) {
+    return '/repay'
+  }
+  
+  // Account-related notifications
+  if (type.includes('CREDIT_LIMIT') || type.includes('TIER') || type.includes('ACCOUNT_UPDATE')) {
+    return '/settings'
+  }
+  
+  // Security notifications
+  if (type.includes('SECURITY') || type.includes('PASSWORD') || type.includes('DEVICE')) {
+    return '/settings?tab=security'
+  }
+  
+  // Default fallback
+  return '/notifications'
 }
 
 export default function NotificationBell() {
+  const router = useRouter()
   const { 
     notifications, 
     unreadCount, 
@@ -78,9 +134,19 @@ export default function NotificationBell() {
   }, [isOpen, setIsOpen])
 
   const handleNotificationClick = (notification: any) => {
+    // Mark as read if not already
     if (!notification.is_read) {
       markAsRead([notification.id])
     }
+    
+    // Navigate to related page
+    const path = getNavigationPath(
+      notification.type, 
+      notification.related_entity_type, 
+      notification.related_entity_id
+    )
+    router.push(path)
+    setIsOpen(false)
   }
 
   return (
@@ -168,9 +234,9 @@ export default function NotificationBell() {
                   >
                     <div className="flex items-start gap-3">
                       {/* Icon */}
-                      <span className="text-xl flex-shrink-0 mt-0.5">
+                      <div className="flex-shrink-0 mt-0.5">
                         {getTypeIcon(notification.type)}
-                      </span>
+                      </div>
                       
                       {/* Content */}
                       <div className="flex-1 min-w-0">

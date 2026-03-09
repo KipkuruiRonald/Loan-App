@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import PreApprovedLoan from '@/components/PreApprovedLoan';
 import GlassCard from '@/components/GlassCard';
 import CosmicBackground from '@/components/CosmicBackground';
@@ -32,9 +33,14 @@ export default function PreApprovedPage() {
       {/* Header */}
       <header className="relative z-10 px-4 py-6">
         <div className="max-w-md mx-auto">
-          <h1 className="text-2xl font-bold text-[var(--text-primary)] text-center">
-            Okoleo
-          </h1>
+          <Image
+            src="/logo.png"
+            alt="Okolea"
+            width={60}
+            height={60}
+            className="mx-auto rounded-xl"
+            priority
+          />
         </div>
       </header>
 

@@ -2,7 +2,7 @@
 Loan Service
 
 Business logic for loan management.
-Handles Okoleo 9-day loan product with dynamic credit limits.
+Handles Okolea 9-day loan product with dynamic credit limits.
 """
 
 from sqlalchemy.orm import Session

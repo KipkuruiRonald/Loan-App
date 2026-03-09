@@ -9,7 +9,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Okoleo Earth-Tone Palette
+        // Okolea Earth-Tone Palette
         cream: '#D4C8B5',
         tan: '#C4A995',
         beige: '#D5BFA4',

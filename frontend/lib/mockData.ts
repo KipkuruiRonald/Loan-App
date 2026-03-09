@@ -4,9 +4,9 @@ import { User, Loan, Payment, LoanStatus, PaymentStatus, UserRole } from '@/type
 // Mock user data - simplified borrower
 export const mockUser: User = {
   id: 1,
-  username: 'okoleo_user',
-  email: 'user@okoleo.co.ke',
-  full_name: 'John Okoleo User',
+  username: 'okolea_user',
+  email: 'user@okolea.co.ke',
+  full_name: 'John Okolea User',
   phone: '0712345678',
   role: UserRole.BORROWER,
   is_active: true,

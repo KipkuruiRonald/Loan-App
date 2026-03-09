@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/GlassCard';
 import { useAuth, getRedirectPath, isAdmin } from '@/context/AuthContext';
@@ -201,13 +202,18 @@ export default function LoginPage() {
           className="text-center mb-8"
         >
           <Link href="/" className="inline-block">
-            <h1 className="text-4xl font-bold" style={{ color: 'var(--accent-primary)' }}>
-              Okoleo
-            </h1>
-          </Link>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Sign in to your account
-          </p>
+              <Image
+                src="/logo.png"
+                alt="Okolea"
+                width={60}
+                height={60}
+                className="rounded-xl"
+                priority
+              />
+            </Link>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              Sign in to your account
+            </p>
         </motion.div>
 
         <GlassCard hover={false} className="p-8">

@@ -173,7 +173,7 @@ class LoginRequest(BaseModel):
 # OKOLEO 9-DAY LOAN BASE (Section 1.1)
 # ============================================================
 class LoanBase(BaseModel):
-    """Base schema for Okoleo 9-day loan product"""
+    """Base schema for Okolea 9-day loan product"""
     principal: float = Field(..., gt=0, le=15000)  # KSh, max 15000
     interest_rate: float = Field(default=0.04, gt=0, lt=1)  # 4% annual
     term_days: int = Field(default=9, ge=9, le=9)  # Fixed 9-day term

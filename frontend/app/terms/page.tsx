@@ -20,13 +20,13 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          By accessing and using the Okoleo mobile application and services (collectively, the &quot;Service&quot;), 
+          By accessing and using the Okolea mobile application and services (collectively, the &quot;Service&quot;), 
           you accept and agree to be bound by the terms and provision of this agreement. If you do not agree 
           to abide by these terms, please do not use this Service.
         </p>
         <p>
           These Terms & Conditions constitute a legally binding agreement between you (&quot;User&quot;, &quot;you&quot;, 
-          or &quot;your&quot;) and Okoleo (&quot;Company&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;).
+          or &quot;your&quot;) and Okolea (&quot;Company&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;).
         </p>
       </div>
     )
@@ -36,7 +36,7 @@ const sections: Section[] = [
     title: '2. Eligibility',
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
-        <p>To be eligible to use Okoleo services, you must meet the following requirements:</p>
+        <p>To be eligible to use Okolea services, you must meet the following requirements:</p>
         <ul className="list-disc list-inside space-y-2 ml-2">
           <li>Be at least 18 years of age</li>
           <li>Be a resident of Kenya</li>
@@ -55,7 +55,7 @@ const sections: Section[] = [
       <div className="space-y-4" style={{ color: 'var(--text-secondary)' }}>
         <div>
           <h4 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Loan Amount</h4>
-          <p>Okoleo offers loans ranging from KES 500 to KES 50,000, subject to approval and your credit history.</p>
+          <p>Okolea offers loans ranging from KES 500 to KES 50,000, subject to approval and your credit history.</p>
         </div>
         <div>
           <h4 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Loan Period</h4>
@@ -73,7 +73,7 @@ const sections: Section[] = [
           <h4 className="font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Credit Limits</h4>
           <p>Your credit limit is dynamically determined based on:</p>
           <ul className="list-disc list-inside space-y-1 ml-2 mt-2">
-            <li>Your repayment history with Okoleo</li>
+            <li>Your repayment history with Okolea</li>
             <li>Credit score from Credit Reference Bureau (CRB)</li>
             <li>Account activity and tenure</li>
             <li>Verification of provided information</li>
@@ -93,7 +93,7 @@ const sections: Section[] = [
           <li>Go to M-Pesa on your phone</li>
           <li>Select &quot;Pay Bill&quot;</li>
           <li>Enter Business Number: <strong>899999</strong></li>
-          <li>Enter your Okoleo phone number as the Account Number</li>
+          <li>Enter your Okolea phone number as the Account Number</li>
           <li>Enter the repayment amount</li>
           <li>Confirm the transaction with your M-Pesa PIN</li>
         </ul>
@@ -114,7 +114,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          By using Okoleo services, you authorize us to share your credit information with Credit Reference 
+          By using Okolea services, you authorize us to share your credit information with Credit Reference 
           Bureaus (CRBs) registered under the Central Bank of Kenya.
         </p>
         <p>We will report:</p>
@@ -137,7 +137,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          Your privacy is important to us. Okoleo collects, stores, and processes your personal information 
+          Your privacy is important to us. Okolea collects, stores, and processes your personal information 
           in accordance with the Kenya Data Protection Act, 2019 and our Privacy Policy.
         </p>
         <p>We collect information including but not limited to:</p>
@@ -163,7 +163,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          Okoleo shall not be liable for any indirect, incidental, special, consequential, or punitive 
+          Okolea shall not be liable for any indirect, incidental, special, consequential, or punitive 
           damages resulting from your use or inability to use the Service.
         </p>
         <p>We do not guarantee that:</p>
@@ -173,7 +173,7 @@ const sections: Section[] = [
           <li>Any particular loan amount will be approved</li>
         </ul>
         <p className="mt-4">
-          You agree to indemnify and hold Okoleo harmless from any claims, damages, or expenses arising 
+          You agree to indemnify and hold Okolea harmless from any claims, damages, or expenses arising 
           from your use of the Service or violation of these Terms.
         </p>
       </div>
@@ -185,7 +185,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          Okoleo reserves the right to modify these Terms & Conditions at any time. We will provide 
+          Okolea reserves the right to modify these Terms & Conditions at any time. We will provide 
           notice of material changes through:
         </p>
         <ul className="list-disc list-inside space-y-2 ml-2">
@@ -194,7 +194,7 @@ const sections: Section[] = [
           <li>SMS to your registered phone number</li>
         </ul>
         <p className="mt-4">
-          Your continued use of Okoleo services after such modifications constitutes acceptance of the 
+          Your continued use of Okolea services after such modifications constitutes acceptance of the 
           updated Terms & Conditions.
         </p>
       </div>
@@ -206,7 +206,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>
-          Okoleo may terminate or suspend your access to the Service immediately, without prior notice 
+          Okolea may terminate or suspend your access to the Service immediately, without prior notice 
           or liability, for any reason, including breach of these Terms.
         </p>
         <p>Upon termination:</p>
@@ -225,7 +225,7 @@ const sections: Section[] = [
       <div className="space-y-3" style={{ color: 'var(--text-secondary)' }}>
         <p>If you have any questions about these Terms & Conditions, please contact us:</p>
         <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
-          <p><strong>Email:</strong> support@okoleo.co.ke</p>
+          <p><strong>Email:</strong> support@okolea.co.ke</p>
           <p><strong>Phone:</strong> +254 700 000 000</p>
           <p><strong>WhatsApp:</strong> 0799 333 014</p>
           <p><strong>Address:</strong> Nairobi, Kenya</p>
@@ -314,7 +314,7 @@ export default function TermsPage() {
         >
           <GlassCard hover={false} className="p-6 mb-6">
             <p style={{ color: 'var(--text-secondary)' }}>
-              Please read these Terms & Conditions carefully before using the Okoleo mobile application 
+              Please read these Terms & Conditions carefully before using the Okolea mobile application 
               and services. By accessing or using our Service, you agree to be bound by these terms. 
               If you disagree with any part of these terms, you may not access our Service.
             </p>
@@ -354,7 +354,7 @@ export default function TermsPage() {
         >
           <div className="p-6 rounded-xl" style={{ backgroundColor: 'var(--bg-card-alt)' }}>
             <p className="text-center font-medium" style={{ color: 'var(--text-primary)' }}>
-              By using Okoleo services, you acknowledge that you have read, understood, and agree to be 
+              By using Okolea services, you acknowledge that you have read, understood, and agree to be 
               bound by these Terms & Conditions.
             </p>
           </div>

@@ -15,7 +15,7 @@ export default function Footer() {
     >
       <div className="max-w-7xl mx-auto px-3 py-2">
         <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap text-xs" style={{ color: '#6D7464' }}>
-          <span>© {currentYear} Okoleo</span>
+          <span>© {currentYear} Okolea</span>
           <span className="text-gray-300">|</span>
           <Link 
             href="/about" 

@@ -17,13 +17,16 @@ import {
   Filter,
   Loader2,
   Search,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import Link from 'next/link';
 import GlassCard from '@/components/GlassCard';
 import { loansApi } from '@/lib/api';
 import { getErrorMessage, maskPhoneNumber } from '@/lib/utils';
 import { useAuth, isAdmin } from '@/context/AuthContext';
+import { useLoanParameters } from '@/hooks/useLoanParameters';
 import { exportLoansToPDF } from '@/lib/pdfExport';
 
 // Custom debounce hook
@@ -75,7 +78,8 @@ interface LoanSummary {
 
 export default function MyLoansPage() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refreshUser } = useAuth();
+  const { default_interest_rate, penalty_rate, term_days, perfect_repayment_bonus, loading: paramsLoading } = useLoanParameters();
   // Redirect admins to admin dashboard
   useEffect(() => {
     if (isAuthenticated && user && isAdmin(user)) {
@@ -93,6 +97,11 @@ export default function MyLoansPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
   const searchParams = useSearchParams();
   
   // Debounce search query
@@ -124,7 +133,25 @@ export default function MyLoansPage() {
       setLoans(filteredLoans);
       
       // Calculate summary
-      calculateSummary(filteredLoans);
+      const activeLoans = filteredLoans.filter((l: Loan) => l.status === 'ACTIVE');
+      const settledLoans = filteredLoans.filter((l: Loan) => l.status === 'SETTLED');
+      
+      const totalOutstanding = activeLoans.reduce((sum: number, l: Loan) => sum + (l.outstanding_balance ?? l.current_outstanding ?? l.total_due), 0);
+      const totalRepaid = settledLoans.reduce((sum: number, l: Loan) => sum + l.total_due, 0);
+      
+      // Find next due date - use outstanding_balance for next payment
+      const nextLoan = activeLoans.sort((a: Loan, b: Loan) => 
+        new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+      )[0];
+      
+      setSummary({
+        active_loans: activeLoans.length,
+        total_outstanding: totalOutstanding,
+        total_repaid: totalRepaid,
+        next_payment: nextLoan ? (nextLoan.outstanding_balance ?? nextLoan.current_outstanding ?? nextLoan.total_due) : 0,
+        next_due_date: nextLoan?.due_date || '',
+        perfect_repayment_streak: user?.perfect_repayment_streak || 0,
+      });
     } catch (err: any) {
       console.error('Failed to fetch loans:', err);
       setError(getErrorMessage(err, 'Failed to load loans. Please try again.'));
@@ -134,29 +161,6 @@ export default function MyLoansPage() {
       setSearching(false);
     }
   }, []);
-
-  // Calculate summary from loans
-  const calculateSummary = (loanData: Loan[]) => {
-    const activeLoans = loanData.filter((l: Loan) => l.status === 'ACTIVE');
-    const settledLoans = loanData.filter((l: Loan) => l.status === 'SETTLED');
-    
-    const totalOutstanding = activeLoans.reduce((sum: number, l: Loan) => sum + (l.outstanding_balance ?? l.current_outstanding ?? l.total_due), 0);
-    const totalRepaid = settledLoans.reduce((sum: number, l: Loan) => sum + l.total_due, 0);
-    
-    // Find next due date - use outstanding_balance for next payment
-    const nextLoan = activeLoans.sort((a: Loan, b: Loan) => 
-      new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
-    )[0];
-    
-    setSummary({
-      active_loans: activeLoans.length,
-      total_outstanding: totalOutstanding,
-      total_repaid: totalRepaid,
-      next_payment: nextLoan ? (nextLoan.outstanding_balance ?? nextLoan.current_outstanding ?? nextLoan.total_due) : 0,
-      next_due_date: nextLoan?.due_date || '',
-      perfect_repayment_streak: 1,
-    });
-  };
 
   // Initial load
   useEffect(() => {
@@ -181,20 +185,22 @@ export default function MyLoansPage() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchLoans(debouncedSearch, statusFilter);
+        refreshUser(); // Also refresh user data to get updated streak
       }
     };
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchLoans, debouncedSearch, statusFilter]);
+  }, [fetchLoans, debouncedSearch, statusFilter, refreshUser]);
 
   // Handle payment success - refresh when returning from repay page
   useEffect(() => {
     if (searchParams.get('paymentSuccess') === 'true') {
       fetchLoans(debouncedSearch, statusFilter);
+      refreshUser(); // Refresh user data to get updated streak
       router.replace('/myloans');
     }
-  }, [searchParams, router, fetchLoans, debouncedSearch, statusFilter]);
+  }, [searchParams, router, fetchLoans, debouncedSearch, statusFilter, refreshUser]);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -205,33 +211,52 @@ export default function MyLoansPage() {
 
   // Handle export
   const handleExport = async () => {
+    if (isExporting) return; // Prevent double clicks
+    
     setIsExporting(true);
     try {
-      // Fetch loans data
-      const loans = await loansApi.getAll(0, 100);
-      
+      // Use existing loans data from state instead of fetching again
       if (!loans || loans.length === 0) {
         alert('No loans to export');
         return;
       }
       
-      // Calculate summary
-      const totalOutstanding = loans.reduce((sum: number, loan: any) => {
-        return sum + (loan.total_due || 0);
-      }, 0);
+      // Calculate using the same logic as the main page
+      const activeLoans = loans.filter(l => l.status === 'ACTIVE');
+      const settledLoans = loans.filter(l => l.status === 'SETTLED');
+      const pendingLoans = loans.filter(l => l.status === 'PENDING');
       
-      const activeLoans = loans.filter((l: any) => l.status === 'ACTIVE').length;
-      const pendingLoans = loans.filter((l: any) => l.status === 'PENDING').length;
-      const completedLoans = loans.filter((l: any) => l.status === 'PAID' || l.status === 'COMPLETED').length;
+      // Calculate total outstanding using outstanding_balance
+      const totalOutstanding = activeLoans.reduce((sum, l) => 
+        sum + (l.outstanding_balance ?? l.current_outstanding ?? l.total_due), 0
+      );
+      
+      // Calculate total repaid from settled loans
+      const totalRepaid = settledLoans.reduce((sum, l) => sum + l.total_due, 0);
+      
+      // Find next due date
+      const nextLoan = activeLoans.length > 0
+        ? activeLoans.sort((a, b) => 
+            new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+          )[0]
+        : null;
       
       const summary = {
+        total_loans: loans.length,
+        active_loans: activeLoans.length,
+        pending_loans: pendingLoans.length,
+        settled_loans: settledLoans.length,
         total_outstanding: totalOutstanding,
-        active_loans: activeLoans,
-        pending_loans: pendingLoans,
-        completed_loans: completedLoans,
+        total_repaid: totalRepaid,
+        total_paid: totalRepaid, // For backward compatibility
+        next_payment: nextLoan ? (nextLoan.outstanding_balance ?? nextLoan.current_outstanding ?? nextLoan.total_due) : 0,
+        next_due_date: nextLoan?.due_date || '',
+        generated_at: new Date().toISOString(),
       };
       
-      // Export to PDF
+      console.log('📊 Exporting with summary:', summary);
+      
+      // Export to PDF with enhanced summary
       exportLoansToPDF(loans, summary);
     } catch (err) {
       console.error('Error exporting:', err);
@@ -322,6 +347,28 @@ export default function MyLoansPage() {
   }
 
   const filteredLoans = loans;
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredLoans.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredLoans.length);
+  const paginatedLoans = filteredLoans.slice(startIndex, endIndex);
+
+  // Handle page reset when filters change
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
+
+  const handleItemsPerPageChange = (value: number) => {
+    setItemsPerPage(value);
+    setCurrentPage(1);
+  };
 
   return (
     <div className="space-y-9">
@@ -492,7 +539,7 @@ export default function MyLoansPage() {
               type="text"
               placeholder="Search loans..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full pl-9 pr-10 py-2 sm:py-3 rounded-xl bg-white/50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
             />
             {searchQuery && (
@@ -513,7 +560,7 @@ export default function MyLoansPage() {
             <Filter className="h-5 w-5 text-gray-500 dark:text-gray-400" />
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => handleStatusFilterChange(e.target.value)}
               className="rounded-xl bg-white/50 dark:bg-gray-700/50 px-4 py-3 text-gray-900 dark:text-white backdrop-blur-sm outline-none border border-gray-200 dark:border-gray-600"
             >
               <option value="all">All Loans</option>
@@ -526,17 +573,35 @@ export default function MyLoansPage() {
         </div>
       </GlassCard>
 
-      {/* Results Count */}
-      <div className="text-sm text-gray-600 dark:text-gray-400">
-        {searchQuery ? (
-          <span>Found {filteredLoans.length} loan{filteredLoans.length !== 1 ? 's' : ''} matching &quot;{searchQuery}&quot;</span>
-        ) : (
-          <span>Showing {filteredLoans.length} loan{filteredLoans.length !== 1 ? 's' : ''}</span>
-        )}
+      {/* Results Count with Pagination Info */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
+          {searchQuery ? (
+            <span>Found {filteredLoans.length} loan{filteredLoans.length !== 1 ? 's' : ''} matching &quot;{searchQuery}&quot;</span>
+          ) : (
+            <span>Showing {startIndex + 1}-{endIndex} of {filteredLoans.length} loan{filteredLoans.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+        
+        {/* Items per page selector */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-600 dark:text-gray-400">Per page:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+            className="rounded-lg bg-white/50 dark:bg-gray-700/50 px-2 py-1 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {ITEMS_PER_PAGE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Loans List */}
-      {filteredLoans.length === 0 ? (
+      {paginatedLoans.length === 0 ? (
         <GlassCard>
           <div className="text-center py-12">
             <Wallet className="h-16 w-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
@@ -564,7 +629,7 @@ export default function MyLoansPage() {
         </GlassCard>
       ) : (
         <div className="space-y-4">
-          {filteredLoans.map((loan, index) => {
+          {paginatedLoans.map((loan, index) => {
             const dueDate = new Date(loan.due_date);
             const today = new Date();
             const daysRemaining = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -609,7 +674,7 @@ export default function MyLoansPage() {
                         <div>
                           <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Interest</p>
                           <p className="text-lg font-bold text-gray-900 dark:text-white">
-                            {loan.interest_rate}%
+                            {default_interest_rate ? `${default_interest_rate}%` : `${loan.interest_rate}%`}
                           </p>
                         </div>
                         <div>
@@ -631,6 +696,15 @@ export default function MyLoansPage() {
                         <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                           <p className="text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1">
                             📱 Registered phone: {maskPhoneNumber(loan.phone_number)} (use for repayment)
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Late penalty information */}
+                      {loan.status === 'ACTIVE' && loan.late_days > 0 && (
+                        <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                          <p className="text-xs text-red-600 dark:text-red-400">
+                            Late by {loan.late_days} days. Penalty: {formatCurrency(loan.late_penalty_amount || (loan.principal * (penalty_rate / 100) * loan.late_days))}
                           </p>
                         </div>
                       )}
@@ -656,7 +730,7 @@ export default function MyLoansPage() {
                       </div>
 
                       {loan.status === 'ACTIVE' && (
-                        <Link href="/repay">
+                        <Link href={`/repay?loanId=${loan.loan_id}`}>
                           <motion.button
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
@@ -677,6 +751,79 @@ export default function MyLoansPage() {
         </div>
       )}
 
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <GlassCard>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            {/* Previous Button */}
+            <motion.button
+              whileHover={{ scale: currentPage > 1 ? 1.02 : 1 }}
+              whileTap={{ scale: currentPage > 1 ? 0.98 : 1 }}
+              onClick={() => setCurrentPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="flex items-center gap-1 px-4 py-2 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </motion.button>
+
+            {/* Page Numbers */}
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                // Show first page, last page, and pages around current
+                const shouldShow = 
+                  page === 1 || 
+                  page === totalPages || 
+                  (page >= currentPage - 1 && page <= currentPage + 1);
+                
+                const isEllipsisBefore = page === currentPage - 2 && page > 1;
+                const isEllipsisAfter = page === currentPage + 2 && page < totalPages;
+
+                if (!shouldShow && !isEllipsisBefore && !isEllipsisAfter) {
+                  return null;
+                }
+
+                if (isEllipsisBefore || isEllipsisAfter) {
+                  return (
+                    <span key={page} className="px-2 py-2 text-gray-500">
+                      ...
+                    </span>
+                  );
+                }
+
+                return (
+                  <motion.button
+                    key={page}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setCurrentPage(page)}
+                    className={`min-w-[40px] h-10 rounded-lg font-medium transition-all ${
+                      currentPage === page
+                        ? 'bg-gradient-to-r from-blue-600 to-emerald-600 text-white'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    {page}
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            {/* Next Button */}
+            <motion.button
+              whileHover={{ scale: currentPage < totalPages ? 1.02 : 1 }}
+              whileTap={{ scale: currentPage < totalPages ? 0.98 : 1 }}
+              onClick={() => setCurrentPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="flex items-center gap-1 px-4 py-2 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </motion.button>
+          </div>
+        </GlassCard>
+      )}
+
       {/* Payment Streak */}
       {summary && summary.perfect_repayment_streak > 0 && (
         <GlassCard>
@@ -690,13 +837,15 @@ export default function MyLoansPage() {
                   Perfect Repayment Streak
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400">
-                  {summary.perfect_repayment_streak} on-time payments
+                  {summary.perfect_repayment_streak} on-time payment{summary.perfect_repayment_streak !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-500">Keep it up!</p>
-              <p className="text-lg font-bold text-emerald-600">+40 credit points</p>
+              <p className="text-lg font-bold text-emerald-600">
+                +{(perfect_repayment_bonus || 40) * summary.perfect_repayment_streak} credit points
+              </p>
             </div>
           </div>
         </GlassCard>

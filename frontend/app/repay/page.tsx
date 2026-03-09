@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   DollarSign, 
@@ -10,7 +10,6 @@ import {
   CheckCircle, 
   Clock,
   Smartphone,
-  CreditCard,
   Shield,
   Loader2
 } from 'lucide-react';
@@ -19,15 +18,10 @@ import { useAuth, isAdmin } from '@/context/AuthContext';
 import {  
   validateRequired,
   validatePhoneNumber, 
-  validateCardNumber, 
-  validateCardExpiry, 
-  validateCvv, 
   validateAmount,
   validateLoanId 
 } from '@/lib/validation';
-import { maskPhoneNumber } from '@/lib/utils';
 
-type PaymentMethod = 'mpesa' | 'card';
 
 // Payment response type
 interface PaymentResponse {
@@ -42,17 +36,17 @@ interface PaymentResponse {
 
 interface RepaymentFormData {
   loanId: string;
-  confirmedPhone: string;
   amount: string;
-  paymentMethod: PaymentMethod;
   phoneNumber: string;
-  cardNumber: string;
-  cardExpiry: string;
-  cardCvv: string;
+  phoneMode: 'registered' | 'different';
 }
+
+// Kenya country code
+const KENYA_COUNTRY_CODE = '254';
 
 export default function RepayPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated } = useAuth();
   // Redirect admins to admin dashboard, redirect unauthenticated to login
   useEffect(() => {
@@ -69,16 +63,14 @@ export default function RepayPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [justPaid, setJustPaid] = useState(false);
+  const [autoSelected, setAutoSelected] = useState(false);
+  const [autoSelectedLoanId, setAutoSelectedLoanId] = useState<string | null>(null);
   
   const [formData, setFormData] = useState<RepaymentFormData>({
     loanId: '',
-    confirmedPhone: '',
     amount: '',
-    paymentMethod: 'mpesa',
     phoneNumber: '',
-    cardNumber: '',
-    cardExpiry: '',
-    cardCvv: ''
+    phoneMode: 'registered'
   });
 
   const [loans, setLoans] = useState<any[]>([]);
@@ -86,6 +78,7 @@ export default function RepayPage() {
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [selectedLoanOutstanding, setSelectedLoanOutstanding] = useState<number>(0);
   const [selectedLoanPhone, setSelectedLoanPhone] = useState<string>('');
+  
 
   // Fetch loans from API
   useEffect(() => {
@@ -124,6 +117,30 @@ export default function RepayPage() {
     fetchPaymentHistory();
   }, []);
 
+  // Auto-select loan from URL parameter
+  useEffect(() => {
+    // Only run if loans are loaded and not already auto-selected
+    if (loading || autoSelected) return;
+    
+    const loanIdParam = searchParams.get('loanId');
+    if (!loanIdParam) return;
+    
+    // Find the matching loan from the loans array
+    const matchingLoan = loans.find((l: any) => l.loan_id === loanIdParam);
+    
+    if (matchingLoan) {
+      // Auto-select the loan
+      setFormData(prev => ({ ...prev, loanId: matchingLoan.loan_id }));
+      setSelectedLoanOutstanding(matchingLoan.outstanding_balance ?? matchingLoan.current_outstanding ?? matchingLoan.total_due ?? 0);
+      setSelectedLoanPhone(matchingLoan.phone_number || '');
+      setAutoSelected(true);
+      setAutoSelectedLoanId(matchingLoan.loan_id);
+    } else {
+      // Loan not found in active loans - could show warning but continue normally
+      console.warn('Loan from URL not found in active loans:', loanIdParam);
+    }
+  }, [loading, autoSelected, searchParams, loans]);
+
   // Calculate summary from real data
   const summary = {
     totalOutstanding: loans.reduce((sum, loan) => sum + (loan.outstanding_balance ?? loan.current_outstanding ?? loan.total_due ?? 0), 0),
@@ -135,6 +152,28 @@ export default function RepayPage() {
     return `KSh ${(amount || 0).toLocaleString()}`;
   };
 
+  // Mask phone number for display (e.g., 07XX XXX XXX)
+  const maskPhoneNumber = (phone: string) => {
+    if (!phone) return 'N/A';
+    // Remove any non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('254')) {
+      return `+254 ${digits.slice(2, 5)}XX XXX${digits.slice(-3)}`;
+    } else if (digits.length === 10 && digits.startsWith('0')) {
+      return `0${digits.slice(1, 4)}XX XXX${digits.slice(-3)}`;
+    }
+    return phone;
+  };
+
+  // Handle phone mode change
+  const handlePhoneModeChange = (mode: 'registered' | 'different') => {
+    setFormData(prev => ({
+      ...prev,
+      phoneMode: mode,
+      phoneNumber: mode === 'registered' ? (user?.phone || '') : ''
+    }));
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -143,7 +182,6 @@ export default function RepayPage() {
     if (name === 'loanId') {
       const selectedLoan = loans.find((l: any) => l.loan_id === value);
       if (selectedLoan) {
-        // Use outstanding_balance from backend (calculated from transactions)
         setSelectedLoanOutstanding(selectedLoan.outstanding_balance ?? selectedLoan.current_outstanding ?? selectedLoan.total_due ?? 0);
         setSelectedLoanPhone(selectedLoan.phone_number || '');
       } else {
@@ -158,8 +196,15 @@ export default function RepayPage() {
     setFieldErrors({});
     setFormError(null);
     
+    // Auto-fill amount for small balance (< 100)
+    let amountToSubmit = formData.amount;
+    if (selectedLoanOutstanding > 0 && selectedLoanOutstanding < 100 && !formData.amount) {
+      amountToSubmit = String(selectedLoanOutstanding);
+      setFormData(prev => ({ ...prev, amount: amountToSubmit }));
+    }
+    
     // First validate amount against outstanding balance
-    const balanceError = validateAgainstBalance(formData.amount, formData.loanId);
+    const balanceError = validateAgainstBalance(amountToSubmit, formData.loanId);
     if (balanceError) {
       setFieldErrors({ amount: balanceError });
       return;
@@ -170,39 +215,74 @@ export default function RepayPage() {
     const loanIdError = validateLoanId(formData.loanId);
     if (loanIdError) errors.loanId = loanIdError;
     
-    // Validate confirmed phone number matches registered phone
-    if (!formData.confirmedPhone) {
-      errors.confirmedPhone = 'Phone number is required for verification';
-    } else if (selectedLoanPhone && formData.confirmedPhone.replace(/\s/g, '') !== selectedLoanPhone.replace(/\s/g, '')) {
-      errors.confirmedPhone = 'Phone number does not match the registered number for this loan';
-    }
-    
-    const amountError = validateAmount(formData.amount, selectedLoanOutstanding < 100 ? 0.01 : 100);
-    if (amountError) errors.amount = amountError;
-    
-    if (formData.paymentMethod === 'mpesa') {
-      const phoneError = validatePhoneNumber(formData.phoneNumber);
-      if (phoneError) errors.phoneNumber = phoneError;
-    } else if (formData.paymentMethod === 'card') {
-      const cardError = validateCardNumber(formData.cardNumber);
-      if (cardError) errors.cardNumber = cardError;
+    // Validate phone number - handle both registered and different phone modes
+    let paymentPhone = '';
+    let phoneValidationError = null;
+
+    if (formData.phoneMode === 'registered') {
+      // Use registered phone from loan or user profile
+      paymentPhone = selectedLoanPhone || user?.phone || '';
       
-      const expiryError = validateCardExpiry(formData.cardExpiry);
-      if (expiryError) errors.cardExpiry = expiryError;
-      
-      const cvvError = validateCvv(formData.cardCvv);
-      if (cvvError) errors.cardCvv = cvvError;
+      if (!paymentPhone) {
+        phoneValidationError = 'No registered phone number found. Please use a different number.';
+      }
+    } else if (formData.phoneMode === 'different') {
+      // User entered a different number - validate it
+      if (!formData.phoneNumber || formData.phoneNumber.trim() === '') {
+        phoneValidationError = 'Please enter a phone number';
+      } else {
+        // Clean the phone number - remove spaces, dashes, etc.
+        const rawPhone = formData.phoneNumber.replace(/\s+/g, '').replace(/-/g, '').trim();
+        const phoneDigits = rawPhone.replace(/\D/g, '');
+        
+        // ACCEPT 07XXXXXXXX FORMAT (this is the key requirement)
+        if (phoneDigits.length === 10 && phoneDigits.startsWith('07')) {
+          // Format: 07XXXXXXXX → 2547XXXXXXXX (remove the 0, add 254)
+          paymentPhone = '254' + phoneDigits.substring(1);
+        }
+        // Also accept 7XXXXXXXX format (without the leading 0)
+        else if (phoneDigits.length === 9 && phoneDigits.startsWith('7')) {
+          // Format: 7XXXXXXXX → 2547XXXXXXXX
+          paymentPhone = '254' + phoneDigits;
+        }
+        // Accept already formatted 254XXXXXXXXX
+        else if (phoneDigits.length === 12 && phoneDigits.startsWith('254')) {
+          // Already in correct format
+          paymentPhone = phoneDigits;
+        }
+        // Accept +254XXXXXXXXX
+        else if (phoneDigits.length === 13 && phoneDigits.startsWith('254')) {
+          // Format: +2547XXXXXXXX → 2547XXXXXXXX
+          paymentPhone = phoneDigits.substring(1);
+        }
+        else {
+          phoneValidationError = 'Please enter a valid Kenyan phone number starting with 07 (e.g., 0712345678)';
+        }
+      }
     }
-    
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
+
+    // If there's a validation error, set it and return
+    if (phoneValidationError) {
+      setFieldErrors({ phoneNumber: phoneValidationError });
+      setIsProcessing(false);
+      setPaymentStep('form');
       return;
     }
-    
+
+    // Double-check we have a phone number
+    if (!paymentPhone) {
+      setFieldErrors({ phoneNumber: 'Please select or enter a phone number' });
+      setIsProcessing(false);
+      setPaymentStep('form');
+      return;
+    }
+
     // Find selected loan to get its ID
     const selectedLoan = loans.find((l: any) => l.loan_id === formData.loanId);
     if (!selectedLoan) {
       setFieldErrors({ loanId: 'Please select a loan' });
+      setIsProcessing(false);
+      setPaymentStep('form');
       return;
     }
     
@@ -211,10 +291,11 @@ export default function RepayPage() {
     setPaymentStep('processing');
     
     try {
+      // Phone number already formatted above
       const paymentData = {
         loan_id: selectedLoan.id,
         amount: parseFloat(formData.amount),
-        phone_number: formData.confirmedPhone || formData.phoneNumber
+        phone_number: paymentPhone
       };
       
       const response = await transactionsApi.initiate(paymentData);
@@ -266,13 +347,9 @@ export default function RepayPage() {
   const handleReset = () => {
     setFormData({
       loanId: '',
-      confirmedPhone: '',
       amount: '',
-      paymentMethod: 'mpesa',
       phoneNumber: '',
-      cardNumber: '',
-      cardExpiry: '',
-      cardCvv: ''
+      phoneMode: 'registered'
     });
     setPaymentStep('form');
     setPaymentResponse(null);
@@ -305,6 +382,69 @@ export default function RepayPage() {
       return `Amount exceeds your outstanding balance of KSh ${outstanding.toFixed(2)}`;
     }
     return null;
+  };
+
+  // Phone number exception handler - specifically accepts 07XXXXXXXX format
+  const resolvePhoneNumber = (
+    mode: 'registered' | 'different',
+    inputNumber: string,
+    registeredNumber: string,
+    loanPhone: string
+  ): { phone: string; error: string | null } => {
+    
+    // Case 1: Using registered phone
+    if (mode === 'registered') {
+      const phone = loanPhone || registeredNumber;
+      if (!phone) {
+        return { 
+          phone: '', 
+          error: 'No registered phone found. Please use a different number.' 
+        };
+      }
+      return { phone, error: null };
+    }
+    
+    // Case 2: Using different phone
+    if (mode === 'different') {
+      // If empty, try fallback to registered as exception
+      if (!inputNumber || inputNumber.trim() === '') {
+        const fallbackPhone = loanPhone || registeredNumber;
+        if (fallbackPhone) {
+          // Exception: Allow empty input to fallback to registered
+          return { phone: fallbackPhone, error: null };
+        }
+        return { phone: '', error: 'Please enter a phone number' };
+      }
+      
+      // Clean the number - remove spaces and non-digits
+      const cleaned = inputNumber.replace(/\s+/g, '').replace(/\D/g, '');
+      
+      // PRIORITY: Accept 07XXXXXXXX format (10 digits starting with 07)
+      if (cleaned.length === 10 && cleaned.startsWith('07')) {
+        // Convert 07XXXXXXXX → 2547XXXXXXXX
+        return { phone: '254' + cleaned.substring(1), error: null };
+      }
+      // Accept 7XXXXXXXX format (9 digits starting with 7)
+      else if (cleaned.length === 9 && cleaned.startsWith('7')) {
+        return { phone: '254' + cleaned, error: null };
+      }
+      // Accept 2547XXXXXXXX format (12 digits)
+      else if (cleaned.length === 12 && cleaned.startsWith('2547')) {
+        return { phone: cleaned, error: null };
+      }
+      // Accept +2547XXXXXXXX format (13 digits with +)
+      else if (cleaned.length === 13 && cleaned.startsWith('2547')) {
+        return { phone: cleaned.substring(1), error: null };
+      }
+      else {
+        return { 
+          phone: '', 
+          error: 'Please enter a valid Kenyan phone number (e.g., 0712345678)' 
+        };
+      }
+    }
+    
+    return { phone: '', error: 'Invalid phone mode' };
   };
 
   // Show no outstanding loans message
@@ -433,6 +573,20 @@ export default function RepayPage() {
         </motion.div>
       </div>
 
+      {/* Auto-selected loan notification */}
+      {autoSelectedLoanId && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-center gap-3"
+        >
+          <CheckCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            Loan <strong>{autoSelectedLoanId}</strong> has been pre-selected for repayment
+          </p>
+        </motion.div>
+      )}
+
       {/* Main Form */}
       <AnimatePresence mode="wait">
         {paymentStep === 'form' && (
@@ -464,12 +618,15 @@ export default function RepayPage() {
                     }`}
                     style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.loanId ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
                   >
-                    <option value="">Select Loan ID</option>
-                    {loans.map(loan => (
-                      <option key={loan.id} value={loan.loan_id}>
-                        {loan.loan_id} - Outstanding: KSh {(loan.outstanding_balance ?? loan.current_outstanding ?? loan.total_due ?? 0).toFixed(2)} | Phone: {maskPhoneNumber(loan.phone_number)}
-                      </option>
-                    ))}
+                    <option value="">-- Select a loan --</option>
+                    {loans.map(loan => {
+                      const outstanding = loan.outstanding_balance ?? loan.current_outstanding ?? loan.total_due ?? 0;
+                      return (
+                        <option key={loan.id} value={loan.loan_id}>
+                          {loan.loan_id} - KSh {outstanding.toFixed(2)} outstanding
+                        </option>
+                      );
+                    })}
                   </select>
                   {fieldErrors.loanId && (
                     <p className="text-xs text-red-500">{fieldErrors.loanId}</p>
@@ -479,6 +636,10 @@ export default function RepayPage() {
                 {/* Smart Amount Section - Different UI based on balance */}
                 {selectedLoanOutstanding > 0 && (
                   <>
+                    {/* Auto-handle small balance: if balance < 100, auto-fill exact amount */}
+                    {(selectedLoanOutstanding ?? 0) < 100 && !formData.amount && (
+                      <input type="hidden" name="amount" value={selectedLoanOutstanding} />
+                    )}
                     {(selectedLoanOutstanding ?? 0) >= 100 ? (
                       /* Normal payment: show input for amounts >= 100 */
                       <div className="space-y-2">
@@ -526,242 +687,120 @@ export default function RepayPage() {
                         )}
                       </div>
                     ) : (
-                      /* Small balance: show prominent exact amount button */
-                      <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
-                        <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-3">
-                          ⚠️ This loan has a small remaining balance of KSh {selectedLoanOutstanding?.toFixed(2)}.
-                          This is below the minimum payment of KSh 100.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            console.log('🔘 Pay Exact Amount button clicked');
-                            console.log('💰 selectedLoanOutstanding:', selectedLoanOutstanding);
-                            console.log('📦 Current formData.amount:', formData.amount);
-                            setFormData({ ...formData, amount: String(selectedLoanOutstanding) });
-                            console.log('✅ Updated formData.amount to:', String(selectedLoanOutstanding));
-                            // Focus the input after setting the value
-                            setTimeout(() => {
-                              const input = document.querySelector('input[name="amount"]') as HTMLInputElement;
-                              console.log('🎯 Input element:', input);
-                              if (input) input.focus();
-                            }, 50);
-                          }}
-                          className="w-full px-4 py-3 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 transition-colors"
-                        >
-                          Pay Exact Amount: KSh {selectedLoanOutstanding?.toFixed(2)}
-                        </button>
-                        <p className="text-xs text-gray-500 mt-2 text-center">
-                          Click the button above to settle this loan completely
-                        </p>
-                        {/* Visible amount input - users can see and verify the amount */}
-                        <div className="mt-3">
-                          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                            Amount (KSh)
-                          </label>
-                          <input
-                            type="number"
-                            name="amount"
-                            value={formData.amount}
-                            onChange={handleInputChange}
-                            step="any"
-                            min={0}
-                            max={selectedLoanOutstanding || 0}
-                            required
-                            className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                              fieldErrors.amount ? 'border-red-500' : ''
-                            }`}
-                            style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.amount ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                            placeholder="Enter amount"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Max: KSh {selectedLoanOutstanding?.toFixed(2)}
-                          </p>
+                      /* Small balance: simplified friendly UI */
+                      <div className="bg-gradient-to-r from-emerald-50 to-green-100 dark:from-emerald-900/30 dark:to-green-900/20 p-4 rounded-xl border border-emerald-200 dark:border-emerald-700">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-200">
+                              Balance: KSh {selectedLoanOutstanding?.toFixed(2)}
+                            </p>
+                            <p className="text-sm text-emerald-600 dark:text-emerald-300 mt-1">
+                              Below minimum - settle it now!
+                            </p>
+                          </div>
+                          <CheckCircle className="h-8 w-8 text-emerald-500" />
                         </div>
+                        
+                        {/* Hidden amount input - auto-filled */}
+                        <input
+                          type="hidden"
+                          name="amount"
+                          value={formData.amount || selectedLoanOutstanding}
+                          onChange={handleInputChange}
+                        />
                       </div>
                     )}
                   </>
                 )}
 
-                {/* Phone Number Confirmation - Show when loan is selected */}
+                {/* Phone Number Selection - Radio Button Style */}
                 {formData.loanId && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="space-y-2 md:col-span-2"
-                  >
-                    <div className="p-3 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-                      <div className="flex items-start gap-2">
-                        <Shield className="h-5 w-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                            Phone Verification Required
-                          </p>
-                          <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                            Enter your registered phone number for this loan to verify your identity
-                          </p>
-                          {selectedLoanPhone && (
-                            <p className="text-xs mt-2 font-medium" style={{ color: 'var(--text-secondary)' }}>
-                              Registered phone: <span className="font-mono text-yellow-600 dark:text-yellow-400">{selectedLoanPhone}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                  <div className="space-y-4 border-t pt-6 mt-4" style={{ borderColor: 'var(--border-light)' }}>
+                    <div>
+                      <h3 className="text-base font-medium" style={{ color: 'var(--text-primary)' }}>
+                        Select Phone for Payment
+                      </h3>
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                        Choose how you want to pay
+                      </p>
                     </div>
-                    <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Confirm Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      name="confirmedPhone"
-                      value={formData.confirmedPhone}
-                      onChange={handleInputChange}
-                      placeholder="Enter your registered phone number"
-                      required
-                      className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-yellow-500 ${
-                        fieldErrors.confirmedPhone ? 'border-red-500' : ''
+
+                    {/* Radio Option 1: Registered Phone */}
+                    <label 
+                      className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                        formData.phoneMode === 'registered' 
+                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                          : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'
                       }`}
-                      style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.confirmedPhone ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                    />
-                    {fieldErrors.confirmedPhone && (
-                      <p className="text-xs text-red-500">{fieldErrors.confirmedPhone}</p>
-                    )}
-                  </motion.div>
-                )}
-
-                {/* Payment Method */}
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                    Payment Method
-                  </label>
-                  <div className="grid grid-cols-3 gap-4">
-                    {/* M-Pesa */}
-                    <label className={`
-                      flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all
-                      ${formData.paymentMethod === 'mpesa'
-                        ? 'border-green-500 bg-green-50/50 dark:bg-green-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-green-300'
-                      }
-                    `}>
+                    >
                       <input
                         type="radio"
-                        name="paymentMethod"
-                        value="mpesa"
-                        checked={formData.paymentMethod === 'mpesa'}
-                        onChange={handleInputChange}
-                        className="sr-only"
+                        name="phoneMode"
+                        value="registered"
+                        checked={formData.phoneMode === 'registered'}
+                        onChange={() => handlePhoneModeChange('registered')}
+                        className="w-5 h-5 text-green-600"
                       />
-                      <Smartphone className={`h-6 w-6 ${formData.paymentMethod === 'mpesa' ? 'text-green-500' : 'text-gray-500'}`} />
-                      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>M-Pesa</span>
+                      <div className="ml-3 flex-1">
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Use This Number to Make Payment</span>
+                        {user?.phone ? (
+                          <p className="text-lg font-mono mt-1 text-gray-800 dark:text-gray-200">
+                            {user.phone}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-500 italic mt-1">No registered phone - use number in your profile</p>
+                        )}
+                      </div>
                     </label>
 
-                    {/* Card */}
-                    <label className={`
-                      flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all
-                      ${formData.paymentMethod === 'card'
-                        ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
-                      }
-                    `}>
+                    {/* Radio Option 2: Different Phone */}
+                    <label 
+                      className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                        formData.phoneMode === 'different' 
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                          : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'
+                      }`}
+                    >
                       <input
                         type="radio"
-                        name="paymentMethod"
-                        value="card"
-                        checked={formData.paymentMethod === 'card'}
-                        onChange={handleInputChange}
-                        className="sr-only"
+                        name="phoneMode"
+                        value="different"
+                        checked={formData.phoneMode === 'different'}
+                        onChange={() => handlePhoneModeChange('different')}
+                        className="w-5 h-5 text-blue-600"
                       />
-                      <CreditCard className={`h-6 w-6 ${formData.paymentMethod === 'card' ? 'text-blue-500' : 'text-gray-500'}`} />
-                      <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Card</span>
+                      <div className="ml-3 flex-1">
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Use Different Number</span>
+                        {formData.phoneMode === 'different' && (
+                          <div className="mt-3">
+                            <input
+                              type="tel"
+                              name="phoneNumber"
+                              value={formData.phoneNumber}
+                              onChange={handleInputChange}
+                              placeholder="07XXXXXXXX"
+                              className={`w-full px-4 py-3 rounded-lg border-2 focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                                fieldErrors.phoneNumber ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : ''
+                              }`}
+                              style={{ 
+                                backgroundColor: 'var(--input-bg)', 
+                                borderColor: fieldErrors.phoneNumber ? '#ef4444' : 'var(--border-light)',
+                                color: 'var(--text-primary)' 
+                              }}
+                              autoFocus
+                            />
+                          </div>
+                        )}
+                      </div>
                     </label>
-                  </div>
-                </div>
 
-                {/* M-Pesa Phone Number */}
-                {formData.paymentMethod === 'mpesa' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="space-y-2"
-                  >
-                    <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      name="phoneNumber"
-                      value={formData.phoneNumber}
-                      onChange={handleInputChange}
-                      placeholder="07XX XXX XXX"
-                      required={formData.paymentMethod === 'mpesa'}
-                      className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-green-500"
-                      style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.phoneNumber ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                    />
                     {fieldErrors.phoneNumber && (
                       <p className="text-xs text-red-500">{fieldErrors.phoneNumber}</p>
                     )}
-                  </motion.div>
+                  </div>
                 )}
 
-                {/* Card Details */}
-                {formData.paymentMethod === 'card' && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                        Card Number
-                      </label>
-                      <input
-                        type="text"
-                        name="cardNumber"
-                        value={formData.cardNumber}
-                        onChange={handleInputChange}
-                        placeholder="1234 5678 9012 3456"
-                        required={formData.paymentMethod === 'card'}
-                        className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.cardNumber ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                      />
-                      {fieldErrors.cardNumber && (
-                        <p className="text-xs text-red-500">{fieldErrors.cardNumber}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                        Card Expiry
-                      </label>
-                      <input
-                        type="text"
-                        name="cardExpiry"
-                        value={formData.cardExpiry}
-                        onChange={handleInputChange}
-                        placeholder="MM/YY"
-                        required={formData.paymentMethod === 'card'}
-                        className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.cardExpiry ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                      />
-                      {fieldErrors.cardExpiry && (
-                        <p className="text-xs text-red-500">{fieldErrors.cardExpiry}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                        CVV
-                      </label>
-                      <input
-                        type="text"
-                        name="cardCvv"
-                        value={formData.cardCvv}
-                        onChange={handleInputChange}
-                        placeholder="123"
-                        required={formData.paymentMethod === 'card'}
-                        className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        style={{ backgroundColor: 'var(--input-bg)', borderColor: fieldErrors.cardCvv ? '#ef4444' : 'var(--input-border)', color: 'var(--text-primary)' }}
-                      />
-                      {fieldErrors.cardCvv && (
-                        <p className="text-xs text-red-500">{fieldErrors.cardCvv}</p>
-                      )}
-                    </div>
-                  </>
-                )}
+                
               </div>
 
                 {/* Selected Loan Outstanding Balance */}
@@ -779,28 +818,6 @@ export default function RepayPage() {
                       {formatCurrency(selectedLoanOutstanding)}
                     </span>
                   </div>
-                  {/* Warning for small balances - only show when > 0 and < 100 */}
-                  {selectedLoanOutstanding > 0 && selectedLoanOutstanding < 100 && (
-                    <div className="mt-3 p-3 rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
-                      <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                        ⚠️ This loan has a small remaining balance of KSh {selectedLoanOutstanding.toFixed(2)}.
-                        This is below the minimum payment of KSh 100. You can pay the exact amount to settle it.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormData({ ...formData, amount: String(selectedLoanOutstanding) });
-                          setTimeout(() => {
-                            const input = document.querySelector('input[name="amount"]') as HTMLInputElement;
-                            if (input) input.focus();
-                          }, 50);
-                        }}
-                        className="mt-2 px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm hover:bg-yellow-700"
-                      >
-                        Pay Exact Amount: KSh {selectedLoanOutstanding.toFixed(2)}
-                      </button>
-                    </div>
-                  )}
                 </motion.div>
               )}
 
@@ -821,7 +838,11 @@ export default function RepayPage() {
                 ) : (
                   <>
                     <DollarSign className="h-5 w-5" />
-                    Pay {formData.amount ? `KSh ${parseFloat(formData.amount).toLocaleString()}` : 'Now'}
+                    {selectedLoanOutstanding > 0 && selectedLoanOutstanding < 100 
+                      ? 'Settle Balance' 
+                      : formData.amount 
+                        ? `Pay KSh ${parseFloat(formData.amount).toLocaleString()}` 
+                        : 'Pay Now'}
                   </>
                 )}
               </motion.button>

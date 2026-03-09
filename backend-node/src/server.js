@@ -31,7 +31,7 @@ app.get('/health', (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'Okoleo Loan Platform API',
+    message: 'Okolea Loan Platform API',
     version: '1.0.0',
     endpoints: {
       health: '/health',

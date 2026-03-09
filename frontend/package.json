@@ -1,14 +1,25 @@
 {
-  "name": "okoleo-frontend",
+  "name": "okolea-frontend",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "export": "next build",
+    "cap:sync": "npx cap sync",
+    "cap:copy": "npx cap copy",
+    "cap:open:android": "npx cap open android",
+    "cap:run:android": "npx cap run android",
+    "mobile:build": "npm run export && npx cap copy && npx cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/status-bar": "^8.0.1",
+    "@emailjs/browser": "^4.4.1",
     "axios": "^1.6.5",
     "clsx": "^2.1.0",
     "date-fns": "^3.3.1",
@@ -17,6 +28,8 @@
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.303.0",
     "next": "14.1.0",
+    "next-pwa": "^5.6.0",
+    "next-themes": "^0.4.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.10.4"
@@ -24,6 +37,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.0",
+    "@babel/preset-react": "^7.23.3",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",

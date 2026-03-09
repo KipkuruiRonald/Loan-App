@@ -83,7 +83,7 @@ export default function AboutPage() {
           className="text-center mb-16"
         >
           <h1 className="text-4xl md:text-5xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
-            About Okoleo
+            About Okolea
           </h1>
           <p className="text-xl md:text-2xl max-w-2xl mx-auto" style={{ color: 'var(--text-secondary)' }}>
             Your trusted loan partner in Kenya since 2024
@@ -225,7 +225,7 @@ export default function AboutPage() {
         >
           <GlassCard hover={false} className="p-8 md:p-12">
             <h2 className="text-2xl md:text-3xl font-bold text-center mb-8" style={{ color: 'var(--text-primary)' }}>
-              Why Choose Okoleo?
+              Why Choose Okolea?
             </h2>
             <div className="grid md:grid-cols-3 gap-6">
               <div className="flex items-start gap-3">
@@ -265,7 +265,7 @@ export default function AboutPage() {
               Ready to Get Started?
             </h2>
             <p className="text-lg mb-8 max-w-2xl mx-auto" style={{ color: 'var(--text-secondary)' }}>
-              Join thousands of Kenyans who trust Okoleo for their financial needs.
+              Join thousands of Kenyans who trust Okolea for their financial needs.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/register">

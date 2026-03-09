@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # Application
     DEBUG: bool = True
-    CORS_ORIGINS: str = '["http://localhost:3000"]'
+    CORS_ORIGINS: str = '["http://localhost:3000", "http://127.0.0.1:3000"]'
     
     # ============================================================
     # OKOLEO 9-DAY LOAN PARAMETERS (Section 8.1)

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, 
@@ -13,10 +14,7 @@ import {
   Shield,
   ClipboardList,
   LogOut,
-  Sparkles,
   Search,
-  Sun,
-  Moon,
   Menu,
   X,
   User,
@@ -24,6 +22,7 @@ import {
 } from 'lucide-react';
 import NotificationBell from '@/components/NotificationBell';
 import { useAuth, isAdmin } from '@/context/AuthContext';
+import LoadingLogo from './LoadingLogo';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -60,11 +59,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
   // Show loading while checking auth
   if (loading || !isAuthenticated || !isAdmin(user)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#D4C8B5' }}>
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2" style={{ borderColor: '#3E3D39' }}></div>
-      </div>
-    );
+    return <LoadingLogo />;
   }
 
   const menuItems = [
@@ -80,7 +75,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: darkMode ? '#1a1a1a' : '#D4C8B5' }}>
+    <div className="admin-layout min-h-screen flex flex-col" style={{ backgroundColor: darkMode ? '#1a1a1a' : '#D4C8B5' }}>
       {/* Top Navigation Bar */}
       <header 
         className="fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-4 lg:px-6"
@@ -91,8 +86,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       >
         {/* Logo */}
         <Link href="/admin" className="flex items-center gap-2">
-          <Sparkles className="w-6 h-6" style={{ color: '#D4C8B5' }} />
-          <span className="text-xl font-bold" style={{ color: '#D4C8B5' }}>Okoleo Admin</span>
+          <Image 
+            src="/logo.png" 
+            alt="Okolea" 
+            width={24} 
+            height={24}
+            className="w-6 h-6 object-contain"
+          />
+          <span className="text-xl font-bold" style={{ color: '#D4C8B5' }}>Okolea Admin</span>
         </Link>
 
         {/* Desktop Navigation - Horizontal */}
@@ -136,15 +137,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               style={{ color: '#D4C8B5' }}
             />
           </div>
-
-          {/* Theme Toggle */}
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg transition-all duration-200 hover:scale-105"
-            style={{ backgroundColor: 'rgba(212, 200, 181, 0.2)', color: '#D4C8B5' }}
-          >
-            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
 
           {/* Notifications */}
           <div className="p-2 rounded-lg transition-all duration-200 hover:scale-105"
@@ -281,7 +273,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Main Content */}
       <main 
-        className="flex-1 w-full p-4 lg:p-8 pt-24 lg:pt-24"
+        className="flex-1 w-full p-4 lg:p-6 pt-4"
       >
         {children}
       </main>

@@ -3,8 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Moon,
-  Sun,
   Search,
   User,
   Menu,
@@ -21,11 +19,12 @@ import {
   Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { useTheme } from '@/app/providers';
 import { useMenu } from '@/app/menu-context';
 import { useAuth, isAdmin, getRedirectPath } from '@/context/AuthContext';
 import NotificationBell from '@/components/NotificationBell';
+import TierProgressBar from '@/components/TierProgressBar';
 import { searchApi } from '@/lib/api';
 
 const userNavigation = [
@@ -47,8 +46,7 @@ const adminNavigation = [
 export default function TopBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { theme, toggleTheme } = useTheme();
-  const { isOpen, toggle, close } = useMenu();
+    const { isOpen, toggle, close } = useMenu();
   const { isAuthenticated, user, logout } = useAuth();
   
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -146,14 +144,16 @@ export default function TopBar() {
         <div className="flex min-h-12 min-w-0 flex-shrink-0 items-center justify-between gap-1 px-1.5 sm:gap-2 sm:px-2 md:gap-3 md:px-3 lg:h-16 lg:px-5">
           {/* Logo */}
           <Link href={isAuthenticated && user ? getRedirectPath(user) : '/'} className="flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
-            >
-              <Sparkles className="h-5 w-5 sm:h-6 sm:w-6 lg:h-7 lg:w-7" style={{ color: 'var(--accent-primary)' }} />
-            </motion.div>
+            <Image
+              src="/logo.png"
+              alt="Okolea"
+              width={40}
+              height={40}
+              className="rounded-lg"
+              priority
+            />
             <div className="min-w-0">
-              <h1 className="truncate text-base font-bold sm:text-lg" style={{ color: 'var(--text-primary)' }}>Okoleo</h1>
+              <h1 className="truncate text-base font-bold sm:text-lg" style={{ color: 'var(--text-primary)' }}>Okolea</h1>
               <p className="hidden text-[10px] leading-tight sm:block" style={{ color: 'var(--text-secondary)' }}>Quick Loans</p>
             </div>
           </Link>
@@ -285,13 +285,10 @@ export default function TopBar() {
               </AnimatePresence>
             </div>
 
-            {/* Tier badge - desktop */}
-            {isAuthenticated && (
-              <div className="hidden items-center gap-2 rounded-xl border px-3 py-1.5 lg:flex" style={{ borderColor: 'var(--border-light)', backgroundColor: 'var(--bg-card-alt)' }}>
-                <Target className="h-4 w-4" style={{ color: 'var(--text-primary)' }} />
-                <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Tier 2</span>
-              </div>
-            )}
+            {/* Tier Progress Bar - desktop (commented out - moved to dashboard) */}
+            {/* {isAuthenticated && (
+              <TierProgressBar user={user} loading={false} />
+            )} */}
 
             <motion.button
               type="button"
@@ -313,16 +310,6 @@ export default function TopBar() {
             >
               <NotificationBell />
             </motion.div>
-
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleTheme}
-              className="flex h-8 w-8 min-h-[32px] min-w-[32px] items-center justify-center rounded-md sm:h-10 sm:w-10 sm:min-h-[40px] sm:min-w-[40px] sm:rounded-xl"
-              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-card-alt)' }}
-            >
-              {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-            </motion.button>
 
             {/* User Menu */}
             {isAuthenticated && user ? (

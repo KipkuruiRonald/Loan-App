@@ -20,7 +20,11 @@ import {
   Send,
   Download,
   RefreshCw,
-  X
+  X,
+  Pencil,
+  Trash2,
+  Save,
+  AlertTriangle
 } from 'lucide-react';
 import { adminApi } from '@/lib/api';
 
@@ -59,7 +63,7 @@ interface UserData {
 }
 
 export default function UserManagementPage() {
-  const { user } = useAuth();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +84,26 @@ export default function UserManagementPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [processing, setProcessing] = useState<number | null>(null);
+
+  // Edit user state
+  const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    role: '',
+    is_active: true
+  });
+
+  // Delete confirmation state
+  const [deletingUser, setDeletingUser] = useState<UserData | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteWarnings, setDeleteWarnings] = useState<any>(null);
+  const [checkingDelete, setCheckingDelete] = useState(false);
+
+  // Message modal state
+  const [messageModalUser, setMessageModalUser] = useState<UserData | null>(null);
+  const [messageText, setMessageText] = useState('');
 
   // Fetch users from API
   const fetchUsers = async () => {
@@ -146,14 +170,30 @@ export default function UserManagementPage() {
 
   // Handle send message
   const handleSendMessage = async (userId: number) => {
+    if (!messageText.trim()) {
+      alert('Please enter a message');
+      return;
+    }
     setProcessing(userId);
     try {
       const token = localStorage.getItem('access_token');
-      await fetch(`http://localhost:8000/api/admin/users/${userId}/message`, {
+      const res = await fetch(`http://localhost:8000/api/admin/users/${userId}/message`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: messageText })
       });
-      alert('Message sent successfully!');
+      
+      if (res.ok) {
+        alert('Message sent successfully!');
+        setMessageText('');
+        setMessageModalUser(null);
+      } else {
+        const data = await res.json();
+        alert(data.detail || 'Failed to send message');
+      }
     } catch (err) {
       console.error('Failed to send message:', err);
       alert('Failed to send message');
@@ -240,6 +280,89 @@ export default function UserManagementPage() {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchUsers();
+  };
+
+  // Handle edit user - open modal with user data
+  const handleEditUser = (user: UserData) => {
+    setEditingUser(user);
+    setEditFormData({
+      full_name: user.full_name,
+      email: user.email,
+      phone: user.phone || '',
+      role: user.role,
+      is_active: user.is_active
+    });
+  };
+
+  // Handle edit form input change
+  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target as HTMLInputElement;
+    setEditFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }));
+  };
+
+  // Handle save edit
+  const handleSaveEdit = async () => {
+    if (!editingUser) return;
+    
+    setProcessing(editingUser.id);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`http://localhost:8000/api/admin/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(editFormData),
+      });
+
+      if (res.ok) {
+        const updatedUser = await res.json();
+        setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...updatedUser } : u));
+        setEditingUser(null);
+        alert('User updated successfully!');
+      } else {
+        const error = await res.json();
+        alert(`Failed to update user: ${error.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Failed to update user:', err);
+      alert('Failed to update user');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  // Handle delete user
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+    
+    setProcessing(deletingUser.id);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`http://localhost:8000/api/admin/users/${deletingUser.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        setUsers(prev => prev.filter(u => u.id !== deletingUser.id));
+        setShowDeleteConfirm(false);
+        setDeletingUser(null);
+        alert('User deleted successfully!');
+      } else {
+        const error = await res.json();
+        alert(`Failed to delete user: ${error.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+      alert('Failed to delete user');
+    } finally {
+      setProcessing(null);
+    }
   };
 
   const getRoleBadgeColor = (role: string) => {
@@ -500,19 +623,25 @@ export default function UserManagementPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleSendMessage(user.id)}
-                            disabled={processing === user.id}
-                            className="p-2 rounded-lg transition-colors hover:opacity-80"
-                            style={{ backgroundColor: '#CABAA1', color: '#050505' }}
-                            title="Send Message"
-                          >
-                            {processing === user.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Send className="w-4 h-4" />
-                            )}
-                          </button>
+                          {/* Send Message Button - Hidden for current admin */}
+                          {user.id !== currentUser?.id && (
+                            <button
+                              onClick={() => {
+                                setMessageText('');
+                                setMessageModalUser(user);
+                              }}
+                              disabled={processing === user.id}
+                              className="p-2 rounded-lg transition-colors hover:opacity-80"
+                              style={{ backgroundColor: '#CABAA1', color: '#050505' }}
+                              title="Send Message"
+                            >
+                              {processing === user.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
                           <button
                             onClick={() => setViewUser(user)}
                             className="p-2 rounded-lg transition-colors hover:opacity-80"
@@ -521,7 +650,53 @@ export default function UserManagementPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {user.kyc_status === 'SUBMITTED' && (
+                          {/* Edit User Button - Hidden for current admin */}
+                          {user.id !== currentUser?.id && (
+                            <button
+                              onClick={() => handleEditUser(user)}
+                              disabled={processing === user.id}
+                              className="p-2 rounded-lg transition-colors hover:opacity-80"
+                              style={{ backgroundColor: '#6D7464', color: '#D4C8B5' }}
+                              title="Edit User"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {/* Delete User Button - Hidden for current admin */}
+                          {user.id !== currentUser?.id && (
+                            <button
+                              onClick={async () => {
+                                setCheckingDelete(true);
+                                try {
+                                  const token = localStorage.getItem('access_token');
+                                  const res = await fetch(`http://localhost:8000/api/admin/users/${user.id}/delete-check`, {
+                                    headers: { 'Authorization': `Bearer ${token}` },
+                                  });
+                                  const data = await res.json();
+                                  setDeleteWarnings(data);
+                                  setDeletingUser(user);
+                                  setShowDeleteConfirm(true);
+                                } catch (err) {
+                                  console.error('Failed to check:', err);
+                                  setDeletingUser(user);
+                                  setShowDeleteConfirm(true);
+                                } finally {
+                                  setCheckingDelete(false);
+                                }
+                              }}
+                              disabled={processing === user.id || checkingDelete}
+                              className="p-2 rounded-lg transition-colors hover:opacity-80"
+                              style={{ backgroundColor: '#EF4444', color: '#FFFFFF' }}
+                              title="Delete User"
+                            >
+                              {checkingDelete ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
+                          {user.kyc_status === 'SUBMITTED' && user.id !== currentUser?.id && (
                             <button
                               onClick={() => setKycUser(user)}
                               disabled={processing === user.id}
@@ -557,7 +732,7 @@ export default function UserManagementPage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-md rounded-2xl overflow-hidden"
+                className="w-full max-w-2xl rounded-2xl overflow-hidden"
                 style={{ backgroundColor: '#D5BFA4' }}
               >
                 <div className="p-6" style={{ borderBottom: '1px solid #B4A58B' }}>
@@ -575,73 +750,247 @@ export default function UserManagementPage() {
                   </div>
                 </div>
 
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-4 p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                <div className="p-6 space-y-6">
+                  {/* User Header with Avatar */}
+                  <div className="flex items-center gap-6 p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
                     <div 
-                      className="w-16 h-16 rounded-full flex items-center justify-center"
+                      className="w-20 h-20 rounded-full flex items-center justify-center"
                       style={{ backgroundColor: getRoleBadgeColor(viewUser.role) }}
                     >
-                      <User className="w-8 h-8" style={{ color: '#D4C8B5' }} />
+                      <User className="w-10 h-10" style={{ color: '#D4C8B5' }} />
                     </div>
-                    <div>
-                      <p className="text-lg font-bold" style={{ color: '#050505' }}>
-                        {viewUser.full_name}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <p className="text-xl font-bold" style={{ color: '#050505' }}>
+                          {viewUser.full_name}
+                        </p>
+                        <span 
+                          className="px-3 py-1 rounded-lg text-xs font-medium"
+                          style={{ backgroundColor: getRoleBadgeColor(viewUser.role), color: '#D4C8B5' }}
+                        >
+                          {viewUser.role}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm" style={{ color: '#6D7464' }}>
+                        <span>ID: {viewUser.id}</span>
+                        <span>•</span>
+                        <span>Member since: {viewUser.created_at ? new Date(viewUser.created_at).toLocaleDateString() : 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contact Information */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Mail className="w-4 h-4" style={{ color: '#3E3D39' }} />
+                        <span className="text-xs font-medium" style={{ color: '#6D7464' }}>Email</span>
+                      </div>
+                      <p className="text-sm font-medium break-all" style={{ color: '#050505' }}>{viewUser.email}</p>
+                      <p className="text-xs mt-1" style={{ color: viewUser.is_verified ? '#22C55E' : '#EF4444' }}>
+                        {viewUser.is_verified ? '✓ Verified' : '✗ Not Verified'}
                       </p>
+                    </div>
+
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Phone className="w-4 h-4" style={{ color: '#3E3D39' }} />
+                        <span className="text-xs font-medium" style={{ color: '#6D7464' }}>Phone</span>
+                      </div>
+                      <p className="text-sm font-medium" style={{ color: '#050505' }}>
+                        {viewUser.phone || 'Not provided'}
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: viewUser.phone ? '#22C55E' : '#6D7464' }}>
+                        {viewUser.phone ? 'Registered' : 'No phone number'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Account Status */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-4 h-4" style={{ color: '#3E3D39' }} />
+                        <span className="text-xs font-medium" style={{ color: '#6D7464' }}>Account Status</span>
+                      </div>
+                      <p className="text-sm font-medium" style={{ color: viewUser.is_active ? '#22C55E' : '#EF4444' }}>
+                        {viewUser.is_active ? 'Active' : 'Inactive'}
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Shield className="w-4 h-4" style={{ color: '#3E3D39' }} />
+                        <span className="text-xs font-medium" style={{ color: '#6D7464' }}>KYC Status</span>
+                      </div>
                       <span 
-                        className="px-2 py-1 rounded-lg text-xs font-medium"
-                        style={{ backgroundColor: getRoleBadgeColor(viewUser.role), color: '#D4C8B5' }}
+                        className="px-2 py-1 rounded-lg text-xs font-medium inline-block"
+                        style={{ backgroundColor: getKycBadgeColor(viewUser.kyc_status), color: '#FFFFFF' }}
                       >
-                        {viewUser.role}
+                        {getKycLabel(viewUser.kyc_status)}
                       </span>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="p-3 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
-                      <p className="text-xs" style={{ color: '#6D7464' }}>Email</p>
-                      <p className="text-sm font-medium" style={{ color: '#050505' }}>{viewUser.email}</p>
+                  {/* Credit Information */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <p className="text-xs" style={{ color: '#6D7464' }}>Credit Tier</p>
+                      <p className="text-lg font-bold" style={{ color: '#050505' }}>{viewUser.credit_tier}</p>
                     </div>
-                    <div className="p-3 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
-                      <p className="text-xs" style={{ color: '#6D7464' }}>Phone</p>
-                      <p className="text-sm font-medium" style={{ color: '#050505' }}>{viewUser.phone || 'Not provided'}</p>
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <p className="text-xs" style={{ color: '#6D7464' }}>Credit Score</p>
+                      <p className="text-lg font-bold" style={{ color: '#050505' }}>{viewUser.credit_score}</p>
                     </div>
-                    <div className="p-3 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
-                      <p className="text-xs" style={{ color: '#6D7464' }}>Member Since</p>
-                      <p className="text-sm font-medium" style={{ color: '#050505' }}>
-                        {viewUser.created_at ? new Date(viewUser.created_at).toLocaleDateString() : 'N/A'}
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <p className="text-xs" style={{ color: '#6D7464' }}>Current Limit</p>
+                      <p className="text-lg font-bold" style={{ color: '#050505' }}>KSh {viewUser.current_limit?.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Loan Statistics */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <p className="text-xs" style={{ color: '#6D7464' }}>Total Loans</p>
+                      <p className="text-xl font-bold" style={{ color: '#050505' }}>{viewUser.loan_count || 0}</p>
+                    </div>
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
+                      <p className="text-xs" style={{ color: '#6D7464' }}>Total Borrowed</p>
+                      <p className="text-xl font-bold" style={{ color: '#050505' }}>KSh {(viewUser.total_borrowed || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 pt-0 flex gap-3">
+                  {/* Only show Send Message button if not current admin */}
+                  {viewUser.id !== currentUser?.id && (
+                    <button
+                      onClick={() => {
+                        setMessageModalUser(viewUser);
+                        setViewUser(null);
+                      }}
+                      className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80 flex items-center justify-center gap-2"
+                      style={{ backgroundColor: '#C4A995', color: '#050505' }}
+                    >
+                      <Send className="w-5 h-5" />
+                      Send Message
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setViewUser(null)}
+                    className={`${viewUser.id !== currentUser?.id ? 'flex-1' : 'w-full'} py-3 rounded-xl font-medium transition-colors hover:opacity-80`}
+                    style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Send Message Modal */}
+        <AnimatePresence>
+          {messageModalUser && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+              onClick={() => setMessageModalUser(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
+                style={{ backgroundColor: '#D5BFA4' }}
+              >
+                <div className="p-6" style={{ borderBottom: '1px solid #B4A58B' }}>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold" style={{ color: '#050505' }}>
+                      Send SMS Message
+                    </h2>
+                    <button
+                      onClick={() => setMessageModalUser(null)}
+                      className="p-2 rounded-xl"
+                      style={{ backgroundColor: '#C4A995' }}
+                    >
+                      <XCircle className="w-5 h-5" style={{ color: '#6D7464' }} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <div 
+                    className="p-4 rounded-xl"
+                    style={{ backgroundColor: '#C4A995' }}
+                  >
+                    <p className="text-sm" style={{ color: '#6D7464' }}>To:</p>
+                    <p className="font-medium" style={{ color: '#050505' }}>
+                      {messageModalUser.full_name}
+                    </p>
+                    <p className="text-sm" style={{ color: '#6D7464' }}>
+                      {messageModalUser.phone || 'No phone number'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label 
+                      className="block text-sm font-medium mb-2" 
+                      style={{ color: '#050505' }}
+                    >
+                      Message
+                    </label>
+                    <textarea
+                      value={messageText}
+                      onChange={(e) => {
+                        const text = e.target.value;
+                        if (text.length <= 160) {
+                          setMessageText(text);
+                        }
+                      }}
+                      placeholder="Enter your message (max 160 characters)..."
+                      rows={4}
+                      className="w-full px-4 py-3 rounded-xl outline-none resize-none"
+                      style={{ 
+                        backgroundColor: '#C4A995',
+                        color: '#050505',
+                        border: messageText.length >= 160 ? '1px solid #EF4444' : '1px solid #B4A58B'
+                      }}
+                    />
+                    <div className="flex justify-between items-center mt-1">
+                      <p 
+                        className="text-xs" 
+                        style={{ color: messageText.length >= 150 ? '#EF4444' : '#6D7464' }}
+                      >
+                        {messageText.length}/160 characters
                       </p>
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="flex-1 p-3 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
-                        <p className="text-xs" style={{ color: '#6D7464' }}>Email</p>
-                        <p className="text-sm font-medium" style={{ color: viewUser.is_verified ? '#22C55E' : '#6D7464' }}>
-                          {viewUser.is_verified ? 'Verified' : 'Unverified'}
+                      {messageText.length >= 160 && (
+                        <p className="text-xs font-medium" style={{ color: '#EF4444' }}>
+                          Maximum length reached
                         </p>
-                      </div>
-                      <div className="flex-1 p-3 rounded-xl" style={{ backgroundColor: '#C4A995' }}>
-                        <p className="text-xs" style={{ color: '#6D7464' }}>Status</p>
-                        <p className="text-sm font-medium" style={{ color: '#050505' }}>
-                          {viewUser.is_active ? 'Active' : 'Inactive'}
-                        </p>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 <div className="p-6 pt-0 flex gap-3">
                   <button
-                    onClick={() => handleSendMessage(viewUser.id)}
+                    onClick={() => handleSendMessage(messageModalUser.id)}
+                    disabled={processing === messageModalUser.id || !messageText.trim() || messageText.length > 160}
+                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80 disabled:opacity-50"
+                    style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
+                  >
+                    {processing === messageModalUser.id ? 'Sending...' : 'Send SMS'}
+                  </button>
+                  <button
+                    onClick={() => setMessageModalUser(null)}
                     className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80"
                     style={{ backgroundColor: '#C4A995', color: '#050505' }}
                   >
-                    Send Message
-                  </button>
-                  <button
-                    onClick={() => setViewUser(null)}
-                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80"
-                    style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
-                  >
-                    Close
+                    Cancel
                   </button>
                 </div>
               </motion.div>
@@ -753,7 +1102,7 @@ export default function UserManagementPage() {
                 {/* Admin Info Footer */}
                 <div className="px-6 pb-6 pt-4 border-t" style={{ borderColor: '#B4A58B' }}>
                   <p className="text-xs text-center" style={{ color: '#6D7464' }}>
-                    Reviewing as {user?.full_name || 'Admin'} ({user?.phone || 'N/A'})
+                    Reviewing as {currentUser?.full_name || 'Admin'} ({currentUser?.phone || 'N/A'})
                   </p>
                 </div>
               </motion.div>
@@ -819,6 +1168,232 @@ export default function UserManagementPage() {
                   </button>
                   <button
                     onClick={() => setShowRejectModal(false)}
+                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80"
+                    style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Edit User Modal */}
+        <AnimatePresence>
+          {editingUser && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+              onClick={() => setEditingUser(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md rounded-2xl overflow-hidden"
+                style={{ backgroundColor: '#D5BFA4' }}
+              >
+                <div className="p-6" style={{ borderBottom: '1px solid #B4A58B' }}>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold" style={{ color: '#050505' }}>
+                      Edit User
+                    </h2>
+                    <button
+                      onClick={() => setEditingUser(null)}
+                      className="p-2 rounded-xl"
+                      style={{ backgroundColor: '#C4A995' }}
+                    >
+                      <X className="w-5 h-5" style={{ color: '#6D7464' }} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm mb-1" style={{ color: '#6D7464' }}>Full Name</label>
+                    <input
+                      type="text"
+                      name="full_name"
+                      value={editFormData.full_name}
+                      onChange={handleEditInputChange}
+                      className="w-full px-4 py-3 rounded-xl border outline-none"
+                      style={{ backgroundColor: '#C4A995', borderColor: '#B4A58B', color: '#050505' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm mb-1" style={{ color: '#6D7464' }}>Email</label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={editFormData.email}
+                      onChange={handleEditInputChange}
+                      className="w-full px-4 py-3 rounded-xl border outline-none"
+                      style={{ backgroundColor: '#C4A995', borderColor: '#B4A58B', color: '#050505' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm mb-1" style={{ color: '#6D7464' }}>Phone</label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={editFormData.phone}
+                      onChange={handleEditInputChange}
+                      className="w-full px-4 py-3 rounded-xl border outline-none"
+                      style={{ backgroundColor: '#C4A995', borderColor: '#B4A58B', color: '#050505' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm mb-1" style={{ color: '#6D7464' }}>Role</label>
+                    <select
+                      name="role"
+                      value={editFormData.role}
+                      onChange={handleEditInputChange}
+                      className="w-full px-4 py-3 rounded-xl border outline-none"
+                      style={{ backgroundColor: '#C4A995', borderColor: '#B4A58B', color: '#050505' }}
+                    >
+                      <option value="BORROWER">Borrower</option>
+                      <option value="ADMIN">Admin</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="is_active"
+                      id="is_active"
+                      checked={editFormData.is_active}
+                      onChange={handleEditInputChange}
+                      className="w-4 h-4"
+                    />
+                    <label htmlFor="is_active" className="text-sm" style={{ color: '#6D7464' }}>
+                      Active Account
+                    </label>
+                  </div>
+                </div>
+
+                <div className="p-6 pt-0 flex gap-3">
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={processing === editingUser.id}
+                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80 flex items-center justify-center gap-2"
+                    style={{ backgroundColor: '#6D7464', color: '#D4C8B5' }}
+                  >
+                    {processing === editingUser.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Save className="w-5 h-5" />
+                    )}
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => setEditingUser(null)}
+                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80"
+                    style={{ backgroundColor: '#C4A995', color: '#050505' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {showDeleteConfirm && deletingUser && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setDeletingUser(null);
+                setDeleteWarnings(null);
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md rounded-2xl overflow-hidden"
+                style={{ backgroundColor: '#D5BFA4' }}
+              >
+                <div className="p-6" style={{ borderBottom: '1px solid #B4A58B' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-full bg-red-100">
+                      <AlertTriangle className="w-6 h-6" style={{ color: '#EF4444' }} />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold" style={{ color: '#050505' }}>
+                        Delete User
+                      </h2>
+                      <p className="text-sm" style={{ color: '#6D7464' }}>
+                        This action cannot be undone
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Warning messages from delete check */}
+                {deleteWarnings && deleteWarnings.warnings && deleteWarnings.warnings.length > 0 && (
+                  <div className="p-6 pb-0">
+                    <div className="p-4 rounded-xl" style={{ backgroundColor: '#FEE2E2', border: '1px solid #EF4444' }}>
+                      <ul className="space-y-1">
+                        {deleteWarnings.warnings.map((warning: string, index: number) => (
+                          <li key={index} className="text-sm" style={{ color: '#991B1B' }}>
+                            ⚠️ {warning}
+                          </li>
+                        ))}
+                      </ul>
+                      {!deleteWarnings.can_delete && (
+                        <p className="text-sm mt-2 font-bold" style={{ color: '#DC2626' }}>
+                          Cannot delete - resolve issues first
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-6">
+                  <p className="mb-2" style={{ color: '#050505' }}>
+                    Are you sure you want to delete <strong>{deletingUser.full_name}</strong>?
+                  </p>
+                  <p className="text-sm" style={{ color: '#6D7464' }}>
+                    Email: {deletingUser.email}<br />
+                    Phone: {deletingUser.phone || 'N/A'}<br />
+                    Role: {deletingUser.role}
+                  </p>
+                </div>
+
+                <div className="p-6 pt-0 flex gap-3">
+                  <button
+                    onClick={handleDeleteUser}
+                    disabled={processing === deletingUser.id || (deleteWarnings && !deleteWarnings.can_delete)}
+                    className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80 flex items-center justify-center gap-2 disabled:opacity-50"
+                    style={{ backgroundColor: '#EF4444', color: '#FFFFFF' }}
+                  >
+                    {processing === deletingUser.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-5 h-5" />
+                    )}
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeletingUser(null);
+                      setDeleteWarnings(null);
+                    }}
                     className="flex-1 py-3 rounded-xl font-medium transition-colors hover:opacity-80"
                     style={{ backgroundColor: '#3E3D39', color: '#D4C8B5' }}
                   >

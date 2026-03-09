@@ -3,12 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
+from sqlalchemy import text, cast
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from pathlib import Path
 import logging
+from dotenv import load_dotenv
+import os 
 
+load_dotenv()
 from core.config import settings as config_settings
 from core.database import get_db, init_db, Base, engine
 from core.security import verify_password, create_access_token, decode_access_token
@@ -19,8 +22,9 @@ from schemas.schemas import (
     TransactionInitiate, TransactionResponse
 )
 from services.loan_service import LoanService
-from api import auth, loans, transactions, admin, notifications, settings as api_settings
+from api import auth, loans, transactions, admin, notifications, settings as api_settings, balance, mpesa_webhook
 from api.auth import get_current_user
+from middleware.maintenance import maintenance_middleware
 
 # Configure logging
 logging.basicConfig(
@@ -31,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Okoleo - Quick Loans",
+    title="Okolea - Quick Loans",
     description="Fast, Transparent Loans for Kenya",
     version="1.0.0",
     docs_url="/docs",
@@ -47,6 +51,12 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Initialize maintenance mode state
+app.state.maintenance_mode = {"enabled": False}
+
+# Add maintenance middleware
+app.middleware("http")(maintenance_middleware)
 
 # Log CORS configuration on startup
 logger.info(f"CORS configured with origins: {config_settings.cors_origins_list}")
@@ -124,7 +134,7 @@ async def health_check(db: Session = Depends(get_db)):
 async def root():
     """Root endpoint"""
     return {
-        "message": "Okoleo API - Quick Loans for Kenya",
+        "message": "Okolea API - Quick Loans for Kenya",
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health"
@@ -138,6 +148,8 @@ app.include_router(transactions.router, prefix="/api/transactions", tags=["Trans
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(api_settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(balance.router, prefix="/api", tags=["Balance"])
+app.include_router(mpesa_webhook.router, tags=["M-Pesa"])
 
 # Debug endpoint to check CORS configuration
 @app.get("/api/debug/cors")

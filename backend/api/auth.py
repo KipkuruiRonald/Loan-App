@@ -4,12 +4,14 @@ from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
 from typing import Optional
 import logging
+import secrets
 
 from core.database import get_db
 from core.security import verify_password, create_access_token, get_password_hash, decode_access_token
 from core.config import settings
 from models.models import User
 from schemas.schemas import UserCreate, UserResponse, Token, LoginRequest
+from services.email_validation import get_email_validation_service
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
@@ -70,9 +72,24 @@ def require_role(allowed_roles: list):
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user"""
+    """Register a new user with email validation"""
     
     logger.info(f"Registration attempt for email: {user_data.email}, username: {user_data.username}")
+    
+    # Validate email thoroughly
+    email_service = get_email_validation_service()
+    validation = email_service.validate_email(user_data.email)
+    
+    if not validation['valid']:
+        logger.warning(f"Registration failed - invalid email: {user_data.email}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Invalid email address",
+                "errors": validation['errors'],
+                "suggestion": validation.get('suggestion')
+            }
+        )
     
     # Check if username exists
     if db.query(User).filter(User.username == user_data.username).first():
@@ -99,6 +116,9 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
                 detail="Phone number already registered"
             )
     
+    # Generate verification token
+    verification_token = secrets.token_urlsafe(32)
+    
     # Create user - simplified (no role selection, users are borrowers)
     from models.models import UserRole
     user = User(
@@ -111,7 +131,10 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         date_of_birth=user_data.date_of_birth,
         location=user_data.location,
         role=UserRole.BORROWER,  # Default role for all users
-        is_active=True
+        is_active=True,
+        email_verified=False,
+        email_verification_token=verification_token,
+        email_verification_sent_at=datetime.utcnow()
     )
     
     db.add(user)
@@ -120,6 +143,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     
     logger.info(f"User registered successfully: ID={user.id}, email={user.email}, username={user.username}")
     
+    # In production, send verification email here
+    # For now, return user with requires_verification flag
     return user
 
 
@@ -132,7 +157,7 @@ async def login(
     """Login and receive JWT token"""
     
     # Log login attempt
-    client_ip = request.client.host if request else "unknown"
+    client_ip = request.client.host if request and request.client else "unknown"
     logger.info(f"Login attempt for username: {form_data.username} from IP: {client_ip}")
     
     # Find user
@@ -197,3 +222,126 @@ async def get_user(
 async def logout(current_user: User = Depends(get_current_user)):
     """Logout current user"""
     return {"success": True, "message": "Logged out successfully"}
+
+
+# ================================================================================
+# EMAIL VERIFICATION ENDPOINTS
+# ================================================================================
+
+@router.get("/verify-email")
+async def verify_email(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """Verify email with token"""
+    logger.info(f"Email verification attempt with token: {token[:10]}...")
+    
+    # Find user with this token
+    user = db.query(User).filter(
+        User.email_verification_token == token,
+        User.email_verified == False
+    ).first()
+    
+    if not user:
+        logger.warning(f"Invalid verification token: {token[:10]}...")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification link"
+        )
+    
+    # Check if token expired (24 hours)
+    if user.email_verification_sent_at:
+        from datetime import timedelta
+        expiry = user.email_verification_sent_at + timedelta(hours=24)
+        if datetime.utcnow() > expiry:
+            logger.warning(f"Expired verification token for user {user.id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification link expired. Please request a new one."
+            )
+    
+    # Mark email as verified
+    user.email_verified = True
+    user.email_verified_at = datetime.utcnow()
+    user.email_verification_token = None
+    db.commit()
+    
+    logger.info(f"Email verified successfully for user {user.id}")
+    
+    return {
+        "success": True,
+        "message": "Email verified successfully! You can now log in.",
+        "email": user.email
+    }
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    email: str,
+    db: Session = Depends(get_db)
+):
+    """Resend verification email (rate limited)"""
+    logger.info(f"Resend verification email request for: {email}")
+    
+    user = db.query(User).filter(User.email == email).first()
+    
+    if not user:
+        # Don't reveal if email exists
+        return {"success": True, "message": "If email exists, verification email will be sent"}
+    
+    if user.email_verified:
+        return {"success": True, "message": "Email already verified"}
+    
+    # Rate limiting - max 3 attempts per hour
+    from datetime import timedelta
+    if user.verification_attempts >= 3:
+        if user.last_verification_email_sent:
+            time_since = datetime.utcnow() - user.last_verification_email_sent
+            if time_since < timedelta(hours=1):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many attempts. Please wait an hour."
+                )
+    
+    # Generate new token
+    new_token = secrets.token_urlsafe(32)
+    user.email_verification_token = new_token
+    user.email_verification_sent_at = datetime.utcnow()
+    user.verification_attempts += 1
+    user.last_verification_email_sent = datetime.utcnow()
+    db.commit()
+    
+    # In production, send verification email here
+    logger.info(f"New verification token generated for user {user.id}")
+    
+    return {
+        "success": True,
+        "message": "Verification email sent. Please check your inbox."
+    }
+
+
+@router.get("/check-email")
+async def check_email(
+    email: str,
+    db: Session = Depends(get_db)
+):
+    """Check if email is valid before registration"""
+    logger.info(f"Email check request for: {email}")
+    
+    # Validate email format
+    email_service = get_email_validation_service()
+    validation = email_service.validate_email(email)
+    
+    # Check if email already exists
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        return {
+            "valid": False,
+            "message": "Email already registered"
+        }
+    
+    return {
+        "valid": validation['valid'],
+        "message": "Email is valid" if validation['valid'] else validation['errors'][0] if validation['errors'] else "Invalid email",
+        "suggestion": validation.get('suggestion')
+    }

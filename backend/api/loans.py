@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from core.database import get_db
-from models.models import User, UserRole, Loan, AuditLog, UserProfile
+from models.models import User, UserRole, Loan, AuditLog, UserProfile, SystemSettings
 from schemas.schemas import (
     LoanCreate, LoanResponse, LoanDetailResponse, LoanBulkUpload,
     LoanUpdate, LoanListItem, LoanListResponse
@@ -104,12 +104,28 @@ async def apply_for_loan(
     print(f"[LOAN APPLY] Received application: {application.dict()}")
     print(f"[LOAN APPLY] Current user: {current_user.id}")
     
-    # Calculate loan details
-    interest_rate = 0.04  # 4% annual
-    daily_rate = interest_rate / 365
-    interest_amount = application.amount * daily_rate * application.term_days
+    # Calculate loan details - fetch interest rate from database settings
+    # Get interest rate from system_settings table
+    interest_setting = db.query(SystemSettings).filter(
+        SystemSettings.category == "loan",
+        SystemSettings.setting_key == "default_interest_rate"
+    ).first()
+    
+    if interest_setting and interest_setting.setting_value:
+        # Interest is stored as percentage (e.g., 20 = 20%, 40 = 40%)
+        interest_rate = float(interest_setting.setting_value)
+    else:
+        interest_rate = 20.0  # fallback to 20%
+    
+    # Calculate interest as percentage of principal
+    # For 20% on KSh 500: 500 * 0.20 = KSh 100
+    # For 40% on KSh 500: 500 * 0.40 = KSh 200
+    interest_amount = application.amount * (interest_rate / 100)
     total_due = application.amount + interest_amount
     due_date = datetime.utcnow() + timedelta(days=application.term_days)
+    
+    # Debug log
+    print(f"[LOAN APPLY] Loan calculation: Principal={application.amount}, Rate={interest_rate}%, Interest={interest_amount}, Total={total_due}")
     
     # Generate unique loan ID
     loan_id = f"OKL-{datetime.utcnow().strftime('%Y%m%d')}-{current_user.id}-{random.randint(1000, 9999)}"
@@ -172,7 +188,7 @@ async def apply_for_loan(
         "total_due": loan.total_due,
         "due_date": loan.due_date.isoformat() if loan.due_date else None,
         "id": loan.id,
-        "phone": loan.phone_number  # Return phone for display
+        "phone": current_user.phone  # Use user's current phone from profile
     }
 
 
@@ -245,7 +261,7 @@ async def get_my_loans_v2(
                 interest_amount=loan.interest_amount,
                 processing_fee=loan.processing_fee,
                 outstanding_balance=outstanding,
-                phone_number=loan.phone_number
+                phone_number=current_user.phone  # Use user's current phone from profile
             )
         )
     
@@ -295,7 +311,7 @@ async def get_recent_loans(
                 interest_amount=loan.interest_amount,
                 processing_fee=loan.processing_fee,
                 outstanding_balance=outstanding,
-                phone_number=loan.phone_number
+                phone_number=current_user.phone  # Use user's current phone from profile
             )
         )
     
@@ -404,10 +420,33 @@ async def get_my_loans(
         loans = loan_service.get_loans_by_borrower(db, current_user.id, skip, limit)
     
     # Calculate outstanding balance for each loan
+    from api.transactions import calculate_outstanding_balance
+    result = []
     for loan in loans:
-        loan.outstanding_balance = calculate_outstanding_balance(db, loan)
+        outstanding = calculate_outstanding_balance(db, loan)
+        result.append({
+            "id": loan.id,
+            "loan_id": loan.loan_id,
+            "borrower_id": loan.borrower_id,
+            "principal": loan.principal,
+            "interest_rate": loan.interest_rate,
+            "term_days": loan.term_days,
+            "processing_fee": loan.processing_fee,
+            "interest_amount": loan.interest_amount,
+            "total_due": loan.total_due,
+            "outstanding_balance": outstanding,
+            "due_date": loan.due_date,
+            "payment_date": loan.payment_date,
+            "late_days": loan.late_days,
+            "perfect_repayment": loan.perfect_repayment,
+            "late_penalty_amount": loan.late_penalty_amount,
+            "status": loan.status,
+            "created_at": loan.created_at,
+            "updated_at": loan.updated_at,
+            "phone_number": current_user.phone  # Use user's current phone from profile
+        })
     
-    return loans
+    return result
 
 
 # Also handle route without trailing slash (prevents redirect that loses auth token)
@@ -432,10 +471,33 @@ async def get_my_loans_no_slash(
         loans = loan_service.get_loans_by_borrower(db, current_user.id, skip, limit)
     
     # Calculate outstanding balance for each loan
+    from api.transactions import calculate_outstanding_balance
+    result = []
     for loan in loans:
-        loan.outstanding_balance = calculate_outstanding_balance(db, loan)
+        outstanding = calculate_outstanding_balance(db, loan)
+        result.append({
+            "id": loan.id,
+            "loan_id": loan.loan_id,
+            "borrower_id": loan.borrower_id,
+            "principal": loan.principal,
+            "interest_rate": loan.interest_rate,
+            "term_days": loan.term_days,
+            "processing_fee": loan.processing_fee,
+            "interest_amount": loan.interest_amount,
+            "total_due": loan.total_due,
+            "outstanding_balance": outstanding,
+            "due_date": loan.due_date,
+            "payment_date": loan.payment_date,
+            "late_days": loan.late_days,
+            "perfect_repayment": loan.perfect_repayment,
+            "late_penalty_amount": loan.late_penalty_amount,
+            "status": loan.status,
+            "created_at": loan.created_at,
+            "updated_at": loan.updated_at,
+            "phone_number": current_user.phone  # Use user's current phone from profile
+        })
     
-    return loans
+    return result
 
 
 # ============================================================
@@ -467,9 +529,33 @@ async def get_loan(
         )
     
     # Calculate outstanding balance
-    loan.outstanding_balance = calculate_outstanding_balance(db, loan)
+    from api.transactions import calculate_outstanding_balance
+    outstanding = calculate_outstanding_balance(db, loan)
     
-    return loan
+    # Build response dict with outstanding balance
+    loan_dict = {
+        "id": loan.id,
+        "loan_id": loan.loan_id,
+        "borrower_id": loan.borrower_id,
+        "principal": loan.principal,
+        "interest_rate": loan.interest_rate,
+        "term_days": loan.term_days,
+        "processing_fee": loan.processing_fee,
+        "interest_amount": loan.interest_amount,
+        "total_due": loan.total_due,
+        "outstanding_balance": outstanding,
+        "due_date": loan.due_date,
+        "payment_date": loan.payment_date,
+        "late_days": loan.late_days,
+        "perfect_repayment": loan.perfect_repayment,
+        "late_penalty_amount": loan.late_penalty_amount,
+        "status": loan.status,
+        "created_at": loan.created_at,
+        "updated_at": loan.updated_at,
+        "phone_number": current_user.phone  # Use user's current phone from profile
+    }
+    
+    return loan_dict
 
 
 @router.put("/{loan_id}", response_model=LoanResponse)

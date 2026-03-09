@@ -19,6 +19,7 @@ class UserRole(str, enum.Enum):
 class LoanStatus(str, enum.Enum):
     """Loan lifecycle status"""
     PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
     ACTIVE = "ACTIVE"
     SETTLED = "SETTLED"
     REJECTED = "REJECTED"
@@ -28,6 +29,7 @@ class LoanStatus(str, enum.Enum):
 class TransactionStatus(str, enum.Enum):
     """Transaction processing status"""
     PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
     CONFIRMED = "CONFIRMED"
     FAILED = "FAILED"
 
@@ -43,7 +45,7 @@ class TransactionType(str, enum.Enum):
 # ============================================================================
 
 class User(Base):
-    """User model for Okoleo loan app - simplified from marketplace version"""
+    """User model for Okolea loan app - simplified from marketplace version"""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -96,13 +98,23 @@ class User(Base):
     kyc_verified_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     kyc_rejection_reason = Column(Text, nullable=True)
     
+    # ============================================================
+    # EMAIL VERIFICATION FIELDS
+    # ============================================================
+    email_verified = Column(Boolean, default=False)
+    email_verification_token = Column(String(100), nullable=True, unique=True, index=True)
+    email_verification_sent_at = Column(DateTime(timezone=True), nullable=True)
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
+    verification_attempts = Column(Integer, default=0)
+    last_verification_email_sent = Column(DateTime(timezone=True), nullable=True)
+    
     # Relationships
     loans = relationship("Loan", back_populates="borrower", foreign_keys="Loan.borrower_id")
     payments = relationship("Transaction", back_populates="borrower", foreign_keys="Transaction.borrower_id")
 
 
 class Loan(Base):
-    """Loan model for Okoleo 9-day loan product - simplified"""
+    """Loan model for Okolea 9-day loan product - simplified"""
     __tablename__ = "loans"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -170,6 +182,12 @@ class Transaction(Base):
     # Status
     status = Column(SQLEnum(TransactionStatus), default=TransactionStatus.PENDING)
     
+    # M-Pesa specific fields
+    mpesa_checkout_id = Column(String(100), nullable=True, index=True)
+    mpesa_receipt = Column(String(50), nullable=True)
+    mpesa_phone = Column(String(20), nullable=True)
+    failure_reason = Column(String(255), nullable=True)
+    
     # Timestamps
     initiated_at = Column(DateTime(timezone=True), server_default=func.now())
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
@@ -231,13 +249,44 @@ class AuditLog(Base):
 
 class NotificationType(str, enum.Enum):
     """Notification type definitions"""
-    # User notifications
+    # User notifications - Loans
     LOAN_APPROVED = "LOAN_APPROVED"
     LOAN_DECLINED = "LOAN_DECLINED"
+    LOAN_DISBURSED = "LOAN_DISBURSED"
+    LOAN_REPAID = "LOAN_REPAID"
+    
+    # User notifications - Payments
     PAYMENT_DUE_REMINDER = "PAYMENT_DUE_REMINDER"
+    PAYMENT_RECEIVED = "PAYMENT_RECEIVED"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
+    REPAYMENT_CONFIRMATION = "REPAYMENT_CONFIRMATION"
+    
+    # User notifications - Account
     CREDIT_LIMIT_INCREASED = "CREDIT_LIMIT_INCREASED"
+    CREDIT_LIMIT_DECREASED = "CREDIT_LIMIT_DECREASED"
     TIER_UPGRADE = "TIER_UPGRADE"
+    TIER_DOWNGRADE = "TIER_DOWNGRADE"
     WELCOME_MESSAGE = "WELCOME_MESSAGE"
+    REFERRAL_BONUS = "REFERRAL_BONUS"
+    
+    # User notifications - Security
+    SECURITY_ALERT = "SECURITY_ALERT"
+    PASSWORD_CHANGED = "PASSWORD_CHANGED"
+    NEW_DEVICE_LOGIN = "NEW_DEVICE_LOGIN"
+    
+    # User notifications - System
+    ACCOUNT_UPDATE = "ACCOUNT_UPDATE"
+    SYSTEM_MAINTENANCE = "SYSTEM_MAINTENANCE"
+    PROMOTIONAL = "PROMOTIONAL"
+    
+    # Admin notifications
+    NEW_LOAN_APPLICATION = "NEW_LOAN_APPLICATION"
+    FRAUD_ALERT = "FRAUD_ALERT"
+    HIGH_RISK_USER = "HIGH_RISK_USER"
+    DEFAULT_REPORTING_NEEDED = "DEFAULT_REPORTING_NEEDED"
+    SYSTEM_UPDATE = "SYSTEM_UPDATE"
+    DAILY_PERFORMANCE_STATS = "DAILY_PERFORMANCE_STATS"
+    USER_REGISTRATION_ALERT = "USER_REGISTRATION_ALERT"
 
 
 class NotificationPriority(str, enum.Enum):
@@ -409,3 +458,48 @@ class SystemSettings(Base):
     __table_args__ = (
         UniqueConstraint('category', 'setting_key', name='uq_system_settings_category_key'),
     )
+
+
+# ============================================================================
+# ACCOUNT BALANCE MODELS (For Real Money Validation)
+# ============================================================================
+
+class AccountBalance(Base):
+    """Track real money balances for users and company"""
+    __tablename__ = "account_balances"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL = company account
+    account_type = Column(String(50))  # 'company_disbursement', 'mpesa', 'bank'
+    phone_number = Column(String(20), nullable=True)  # For M-Pesa accounts
+    balance = Column(Float, default=0.0)
+    currency = Column(String(10), default="KES")
+    last_updated = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    
+    # Unique constraint for user + account_type + phone
+    __table_args__ = (
+        UniqueConstraint('user_id', 'account_type', 'phone_number', name='uq_account_balance_user_type_phone'),
+    )
+
+
+class SystemMaintenance(Base):
+    """System maintenance mode configuration"""
+    __tablename__ = "system_maintenance"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    is_enabled = Column(Boolean, default=False)
+    message = Column(String(500), nullable=True)
+    start_time = Column(DateTime(timezone=True), nullable=True)
+    end_time = Column(DateTime(timezone=True), nullable=True)
+    estimated_duration = Column(Integer, nullable=True)  # in minutes
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    creator = relationship("User", foreign_keys=[created_by])

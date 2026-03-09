@@ -1,0 +1,12 @@
+{
+  "appId": "com.okolea.app",
+  "appName": "Okolea",
+  "webDir": "out",
+  "server": {
+    "url": "http://10.82.94.2:3000",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

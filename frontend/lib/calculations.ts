@@ -1,5 +1,5 @@
 /**
- * Okoleo Loan Calculations
+ * Okolea Loan Calculations
  * 
  * Rates:
  * - Interest: 4% per 9-day term
